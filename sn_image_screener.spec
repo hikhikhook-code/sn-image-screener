@@ -64,6 +64,14 @@ a = Analysis(
         'numpy',
         'PIL.Image',
         'skimage',
+        # AI providers (Gemini / OpenAI / Groq) talk HTTP via `requests`.
+        'requests',
+        'urllib3',
+        'charset_normalizer',
+        'certifi',
+        'idna',
+        # Recycle Bin support for the DELETE button.
+        'send2trash',
     ],
     hookspath=[],
     hooksconfig={},
