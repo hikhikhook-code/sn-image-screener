@@ -1,14 +1,58 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller spec for SN IMAGE SCREENER (single-file Windows build)."""
 
+import os
+from pathlib import Path
+
+import PySide6
+from PyInstaller.utils.hooks import collect_data_files
+
 block_cipher = None
+
+
+# ---------------------------------------------------------------------------
+# Qt platform plugins.
+#
+# The `qwindows.dll` platform plugin in `PySide6/plugins/platforms/`
+# is what initialises the Qt event loop on Windows. PyInstaller's auto
+# detection sometimes misses it, which causes:
+#   "This application failed to start because no Qt platform plugin
+#    could be initialised."
+#
+# We grab it (and a small set of plugin folders we actually use)
+# explicitly. Everything else from PySide6 is left to PyInstaller's
+# default hook so the binary stays small.
+# ---------------------------------------------------------------------------
+
+_pyside_root = Path(PySide6.__file__).parent
+_plugin_root = _pyside_root / 'plugins'
+
+_plugin_dirs = (
+    'platforms',         # qwindows.dll — REQUIRED for Qt to start on Windows
+    'styles',            # native windows style
+    'imageformats',      # qjpeg, qpng, etc. — for the Inspector preview
+    'iconengines',       # SVG icon engine if Qt needs it
+    'platformthemes',    # Win 11 dark/light theme support
+)
+
+extra_datas = []
+for sub in _plugin_dirs:
+    src = _plugin_root / sub
+    if src.is_dir():
+        # Each .dll inside is shipped as a data file under
+        # the destination "PySide6/plugins/<sub>" so Qt can find them.
+        for f in src.iterdir():
+            if f.is_file():
+                extra_datas.append(
+                    (str(f), os.path.join('PySide6', 'plugins', sub))
+                )
 
 
 a = Analysis(
     ['run.py'],
     pathex=['.'],
     binaries=[],
-    datas=[
+    datas=extra_datas + [
         ('sn_image_screener/assets/*.png', 'sn_image_screener/assets'),
         ('sn_image_screener/assets/*.ico', 'sn_image_screener/assets'),
     ],
@@ -25,7 +69,7 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        # Keep the binary lean: SN IMAGE SCREENER does not need these.
+        # Keep the binary lean: SN IMAGE SCREENER does not use these.
         'PySide6.Qt3DAnimation',
         'PySide6.Qt3DCore',
         'PySide6.Qt3DExtras',
@@ -36,7 +80,6 @@ a = Analysis(
         'PySide6.QtCharts',
         'PySide6.QtDataVisualization',
         'PySide6.QtMultimedia',
-        'PySide6.QtNetwork',
         'PySide6.QtNfc',
         'PySide6.QtQml',
         'PySide6.QtQuick',
@@ -44,7 +87,6 @@ a = Analysis(
         'PySide6.QtRemoteObjects',
         'PySide6.QtSensors',
         'PySide6.QtSerialPort',
-        'PySide6.QtSql',
         'PySide6.QtTest',
         'PySide6.QtWebChannel',
         'PySide6.QtWebEngineCore',
