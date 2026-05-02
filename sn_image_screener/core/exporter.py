@@ -70,12 +70,26 @@ def copy_by_status(
     items: Iterable[ScanItem],
     target_dir: Path,
     statuses: Optional[List[Status]] = None,
+    *,
+    split_subfolders: bool = True,
 ) -> List[Path]:
     """Copy each item whose status is in `statuses` into `target_dir`.
 
+    When `split_subfolders=True` (default) each file is dropped into a
+    subfolder named after its status, i.e.::
+
+        target_dir/
+            PASS/    01_pass_sharp.jpg
+            REVIEW/  03_review_jpeg.jpg
+            REJECT/  06_reject_blurry.jpg
+
+    so the user immediately sees a tidy split between good and bad
+    photos. Pass `split_subfolders=False` to dump everything in
+    `target_dir` flat (legacy behaviour).
+
     Returns the list of destination paths actually written. Source files
-    are not modified. If a name collision occurs the destination filename
-    is suffixed with " (N)".
+    are NEVER modified. If a name collision occurs the destination
+    filename is suffixed with " (N)".
     """
     if statuses is None:
         statuses = [Status.PASS, Status.REVIEW]
@@ -87,13 +101,18 @@ def copy_by_status(
     for item in items:
         if item.status not in statuses:
             continue
-        dest = target_dir / item.path.name
+        if split_subfolders:
+            bucket = target_dir / item.status.value
+            bucket.mkdir(parents=True, exist_ok=True)
+        else:
+            bucket = target_dir
+        dest = bucket / item.path.name
         if dest.exists():
             stem = dest.stem
             suffix = dest.suffix
             n = 1
             while dest.exists():
-                dest = target_dir / f"{stem} ({n}){suffix}"
+                dest = bucket / f"{stem} ({n}){suffix}"
                 n += 1
         shutil.copy2(item.path, dest)
         written.append(dest)

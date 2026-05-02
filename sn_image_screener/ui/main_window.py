@@ -415,16 +415,20 @@ class MainWindow(QMainWindow):
                 export_json(items, json_path)
                 self.log_panel.ok(f"JSON report → {json_path}")
 
-            # Copy good files
+            # Copy files into per-status subfolders (PASS / REVIEW / REJECT).
             statuses_to_copy = []
             if self.control_panel.chk_copy_pass.isChecked():
                 statuses_to_copy.append(Status.PASS)
             if self.control_panel.chk_copy_review.isChecked():
                 statuses_to_copy.append(Status.REVIEW)
+            if self.control_panel.chk_copy_reject.isChecked():
+                statuses_to_copy.append(Status.REJECT)
             if statuses_to_copy:
-                target = out / "selected"
-                written = copy_by_status(items, target, statuses_to_copy)
-                self.log_panel.ok(f"Copied {len(written)} file(s) → {target}")
+                written = copy_by_status(items, out, statuses_to_copy)
+                buckets = " / ".join(s.value for s in statuses_to_copy)
+                self.log_panel.ok(
+                    f"Copied {len(written)} file(s) → {out}  ({buckets})"
+                )
 
             self.statusBar().showMessage(f"Export complete · {out}")
             self.toaster.ok("Export complete", str(out))

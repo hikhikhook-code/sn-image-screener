@@ -184,11 +184,19 @@ class ControlPanel(QFrame):
 
         self.chk_copy_pass = QCheckBox("Copy PASS files on export"); self.chk_copy_pass.setChecked(True)
         self.chk_copy_review = QCheckBox("Copy REVIEW files on export")
+        self.chk_copy_reject = QCheckBox("Copy REJECT files on export")
         self.chk_export_csv = QCheckBox("Write CSV report"); self.chk_export_csv.setChecked(True)
         self.chk_export_json = QCheckBox("Write JSON report")
-        for cb in (self.chk_copy_pass, self.chk_copy_review,
+        for cb in (self.chk_copy_pass, self.chk_copy_review, self.chk_copy_reject,
                    self.chk_export_csv, self.chk_export_json):
             self.grp_output.add(cb)
+        # Hint: clarify that exports are auto-organised into subfolders.
+        hint = self._hint(
+            "Each ticked group is copied into its own subfolder "
+            "(PASS / REVIEW / REJECT) inside the export folder. "
+            "Original files are never moved or modified."
+        )
+        self.grp_output.add(hint)
 
         # --- Advanced (collapsed) ----------------------------------------
         self.grp_advanced = CollapsibleGroup("Advanced", expanded=False)
