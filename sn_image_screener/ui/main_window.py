@@ -10,8 +10,8 @@ from PySide6.QtCore import Qt, QThread
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication, QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel,
-    QMainWindow, QProgressBar, QSplitter,
-    QStatusBar, QTabWidget, QVBoxLayout, QWidget,
+    QMainWindow, QProgressBar, QSplitter, QStackedWidget,
+    QStatusBar, QVBoxLayout, QWidget,
 )
 
 from .. import __app_name__, __subtitle__, __version__
@@ -27,6 +27,7 @@ from .command_bar import CommandBar
 from .control_panel import ControlPanel
 from .inspector import Inspector
 from .log_panel import LogPanel
+from .nav_rail import NavRail, ai_anatomy_icon, technical_quality_icon
 from .results_table import ResultsTable
 from .toast import Toaster
 from .workers import ScanWorker
@@ -125,20 +126,29 @@ class MainWindow(QMainWindow):
         self.ai_panel.add_files_requested.connect(self.add_files)
         self.ai_panel.clear_sources_requested.connect(self.clear_sources)
 
-        # ---- Tab container --------------------------------------------
-        self.tabs = QTabWidget()
-        self.tabs.addTab(self.h_split, "TECHNICAL QUALITY")
-        self.tabs.addTab(self.ai_panel, "AI ANATOMY INSPECTOR")
-        self.tabs.currentChanged.connect(self._on_tab_changed)
-        self.tabs.setStyleSheet(
-            f"QTabWidget::pane{{border:2px solid {theme.INK}; top:-2px;}}"
-            f"QTabBar::tab{{padding:8px 18px; margin-right:2px;"
-            f" border:2px solid {theme.INK}; background:{theme.SURFACE_ALT};"
-            f" color:{theme.INK}; font-weight:bold; letter-spacing:1px;}}"
-            f"QTabBar::tab:selected{{background:{theme.LIME};"
-            f" color:{theme.INK};}}"
+        # ---- Mode pages (Technical Quality / AI Anatomy Inspector) ----
+        # The two former tab bodies become pages of a QStackedWidget so
+        # the new collapsible left rail can swap between them.
+        self.mode_stack = QStackedWidget()
+        self.mode_stack.addWidget(self.h_split)
+        self.mode_stack.addWidget(self.ai_panel)
+
+        # ---- Collapsible left navigation rail -------------------------
+        self.nav_rail = NavRail()
+        self.nav_rail.add_mode(
+            "TECHNICAL QUALITY", technical_quality_icon()
         )
-        layout.addWidget(self.tabs, 1)
+        self.nav_rail.add_mode(
+            "AI ANATOMY INSPECTOR", ai_anatomy_icon()
+        )
+        self.nav_rail.mode_changed.connect(self._on_mode_changed)
+
+        body = QHBoxLayout()
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(8)
+        body.addWidget(self.nav_rail)
+        body.addWidget(self.mode_stack, 1)
+        layout.addLayout(body, 1)
 
         # Status bar ----------------------------------------------------
         self.setStatusBar(QStatusBar())
@@ -274,21 +284,22 @@ class MainWindow(QMainWindow):
             paths = []
         self.ai_panel.set_files(paths)
 
-    def _on_tab_changed(self, index: int) -> None:
-        """Adjust the command bar to match the active tab.
+    def _on_mode_changed(self, index: int) -> None:
+        """Adjust the command bar to match the active mode.
 
         Technical Quality (index 0) keeps Start / Export / Delete enabled;
         AI Anatomy Inspector (index 1) shows the same command bar but
-        Start / Export / Delete are disabled because the AI tab has its
-        own RUN button and uses Export Results from the Technical tab
+        Start / Export / Delete are disabled because the AI mode has its
+        own RUN button and uses Export Results from the Technical mode
         for now.
         """
+        self.mode_stack.setCurrentIndex(index)
         is_technical = (index == 0)
         self.command_bar.set_can_start(
             is_technical and (bool(self._folders) or bool(self._files))
         )
         self.command_bar.set_scanning(False)
-        # Push the latest file list into the AI tab whenever the user
+        # Push the latest file list into the AI mode whenever the user
         # switches over so the queue is always fresh.
         if not is_technical:
             self._sync_ai_files()

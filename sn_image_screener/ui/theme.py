@@ -269,6 +269,61 @@ QPushButton#group-toggle:checked {{
     color: {LIME};
 }}
 
+/* Navigation rail -------------------------------------------------------- */
+
+QFrame#nav-rail {{
+    background: {SURFACE_ALT};
+    border-right: 2px solid {INK};
+}}
+
+QFrame#rail-divider {{
+    background: {INK};
+    border: 0;
+    min-height: 2px;
+    max-height: 2px;
+}}
+
+QLabel#rail-logo {{
+    background: transparent;
+    padding: 4px 0px;
+}}
+
+QToolButton#rail-toggle {{
+    background: {SURFACE};
+    color: {INK};
+    border: 2px solid {INK};
+    padding: 2px 6px;
+    font-weight: 900;
+}}
+QToolButton#rail-toggle:hover {{
+    background: {INK};
+    color: {LIME};
+}}
+
+QToolButton#rail-button {{
+    background: {SURFACE};
+    color: {INK};
+    border: 2px solid {INK};
+    padding: 6px 10px;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 1px;
+    text-align: left;
+}}
+QToolButton#rail-button:hover {{
+    background: {INK};
+    color: {LIME};
+}}
+QToolButton#rail-button:checked {{
+    background: {ORANGE};
+    color: {INK};
+    border: 2px solid {INK};
+}}
+QToolButton#rail-button:checked:hover {{
+    background: {ORANGE};
+    color: {INK};
+}}
+
 /* Input fields ---------------------------------------------------------- */
 
 QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {{
