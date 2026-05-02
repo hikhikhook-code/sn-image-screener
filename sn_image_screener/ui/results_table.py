@@ -106,6 +106,7 @@ class ResultsTable(QFrame):
 
     selection_changed = Signal(object)  # ScanItem | None
     empty_action_clicked = Signal(int)  # 0 = Add Folder, 1 = Add Files
+    item_activated = Signal(object)     # ScanItem — emitted on row double-click
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -142,6 +143,9 @@ class ResultsTable(QFrame):
         self.table.setShowGrid(False)
         self.table.setIconSize(QSize(56, 56))
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
+        # Row double-click → open the Full Review dialog. Forward the
+        # ScanItem upward so MainWindow owns the dialog construction.
+        self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
         self._stack.addWidget(self.table)
 
         self._empty = EmptyState(
@@ -262,7 +266,18 @@ class ResultsTable(QFrame):
         row = sorted(rows)[0]
         return self._items.get(row)
 
+    def selected_index(self) -> Optional[int]:
+        rows = {idx.row() for idx in self.table.selectedIndexes()}
+        if not rows:
+            return None
+        return sorted(rows)[0]
+
     # ----------------------------------------------------------- private
 
     def _on_selection_changed(self) -> None:
         self.selection_changed.emit(self.selected_item())
+
+    def _on_cell_double_clicked(self, row: int, _col: int) -> None:
+        item = self._items.get(row)
+        if item is not None:
+            self.item_activated.emit(item)

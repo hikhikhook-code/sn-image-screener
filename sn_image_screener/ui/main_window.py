@@ -25,12 +25,24 @@ from .ai import AIPanel
 from .delete_dialog import DeleteConfirmDialog
 from .command_bar import CommandBar
 from .control_panel import ControlPanel
+from .full_review import FullReviewDialog, FullReviewItem
 from .inspector import Inspector
 from .log_panel import LogPanel
 from .nav_rail import NavRail, ai_anatomy_icon, technical_quality_icon
 from .results_table import ResultsTable
+from .technical_report_panel import TechnicalReportPanel
 from .toast import Toaster
 from .workers import ScanWorker
+
+# Maps :class:`Status` to the badge string used by the Full Review
+# toolbar. ``REJECT`` becomes ``FAIL`` so PASS / REVIEW / FAIL / ERROR
+# stay consistent with the AI Inspector.
+_TECH_BADGE = {
+    Status.PASS:   "PASS",
+    Status.REVIEW: "REVIEW",
+    Status.REJECT: "FAIL",
+    Status.ERROR:  "ERROR",
+}
 
 
 class MainWindow(QMainWindow):
@@ -102,6 +114,9 @@ class MainWindow(QMainWindow):
 
         self.results = ResultsTable()
         self.results.selection_changed.connect(self._on_row_selected)
+        # Double-clicking a result row opens the Full Review workspace
+        # for the selected item.
+        self.results.item_activated.connect(self._open_technical_full_review)
         # Quick actions inside the empty state of the results table:
         # 0 = Add Folder, 1 = Add Files (mirrors the top command bar).
         self.results.empty_action_clicked.connect(
@@ -473,6 +488,40 @@ class MainWindow(QMainWindow):
 
     def _on_row_selected(self, item) -> None:
         self.inspector.show_item(item)
+
+    def _open_technical_full_review(self, _scan_item) -> None:
+        """Open the Full Review dialog from a results-table double-click."""
+        scan_items = self.results.items()
+        if not scan_items:
+            return
+        review_items: List[FullReviewItem] = []
+        for it in scan_items:
+            review_items.append(
+                FullReviewItem(
+                    path=it.path,
+                    status=_TECH_BADGE.get(it.status, "ERROR"),
+                    regions=[],
+                    payload=it,
+                )
+            )
+        start = self.results.selected_index() or 0
+
+        report = TechnicalReportPanel()
+
+        def _update_report(item: Optional[FullReviewItem]) -> None:
+            report.show_item(
+                item.payload if item is not None else None,
+            )
+
+        dlg = FullReviewDialog(
+            review_items,
+            report_widget=report,
+            on_item_changed=_update_report,
+            start_index=start,
+            title="Technical Quality — Full Review",
+            parent=self,
+        )
+        dlg.exec()
 
     def _update_counters(self, total: int) -> None:
         self._counter_widgets["TOTAL"].setText(str(total))
