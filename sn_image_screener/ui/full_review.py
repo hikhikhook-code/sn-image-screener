@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, List, Optional
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QSize, Qt, Signal
 from PySide6.QtGui import QGuiApplication, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QDialog, QFrame, QHBoxLayout, QLabel, QPushButton,
@@ -249,7 +249,12 @@ class FullReviewDialog(QDialog):
         self._toolbar = bar
 
     def _build_body(self, report_widget: QWidget) -> None:
-        """Image area (with prev/next buttons) on the left, report on the right."""
+        """Edge-to-edge image left, report right.
+
+        Prev/next nav buttons are rendered as translucent overlay
+        children of the image host so the photo fills its column with
+        no surrounding margin.
+        """
         # --- Image area --------------------------------------------------
         self.marker = MarkerView()
         self.marker.setMinimumSize(540, 360)
@@ -257,42 +262,13 @@ class FullReviewDialog(QDialog):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding,
         )
 
-        self.btn_prev = QToolButton()
-        self.btn_prev.setObjectName("review-nav")
-        self.btn_prev.setText("◀")
-        self.btn_prev.setToolTip("Previous image (Left arrow)")
-        self.btn_prev.setFixedSize(QSize(48, 96))
-        self.btn_prev.clicked.connect(self._prev)
-
-        self.btn_next = QToolButton()
-        self.btn_next.setObjectName("review-nav")
-        self.btn_next.setText("▶")
-        self.btn_next.setToolTip("Next image (Right arrow)")
-        self.btn_next.setFixedSize(QSize(48, 96))
-        self.btn_next.clicked.connect(self._next)
-
-        nav_style = (
-            f"QToolButton#review-nav {{"
-            f"  background:{theme.INK}; color:{theme.LIME};"
-            f"  border:2px solid {theme.INK};"
-            f"  font-size:18px; font-weight:bold;"
-            f"}}"
-            f"QToolButton#review-nav:hover {{"
-            f"  background:{theme.LIME}; color:{theme.INK};"
-            f"}}"
-            f"QToolButton#review-nav:disabled {{"
-            f"  background:{theme.SURFACE_ALT}; color:{theme.INK_MUTED};"
-            f"  border-color:{theme.INK_MUTED};"
-            f"}}"
-        )
-        self.btn_prev.setStyleSheet(nav_style)
-        self.btn_next.setStyleSheet(nav_style)
-
         # Empty-state placeholder + image stacked together so we can swap
         # them when the dialog is opened with zero items.
         self._image_stack_host = QFrame()
+        self._image_stack_host.setObjectName("review-image-host")
         self._image_stack_host.setStyleSheet(
-            f"background:{theme.INK}; border:2px solid {theme.INK};"
+            f"#review-image-host {{ background:{theme.INK}; "
+            f"  border:0px; }}"
         )
         self._image_stack = QStackedLayout(self._image_stack_host)
         self._image_stack.setContentsMargins(0, 0, 0, 0)
@@ -312,13 +288,50 @@ class FullReviewDialog(QDialog):
         self._image_stack.addWidget(self._image_empty)
         self._image_stack.setCurrentIndex(0)
 
-        image_pane = QFrame()
-        ip = QHBoxLayout(image_pane)
-        ip.setContentsMargins(8, 8, 8, 8)
-        ip.setSpacing(8)
-        ip.addWidget(self.btn_prev, 0, Qt.AlignmentFlag.AlignVCenter)
-        ip.addWidget(self._image_stack_host, 1)
-        ip.addWidget(self.btn_next, 0, Qt.AlignmentFlag.AlignVCenter)
+        # --- Overlay nav buttons (children of the host, not laid out) ---
+        nav_style = (
+            f"QToolButton#review-nav {{"
+            f"  background:rgba(17,17,17,150);"
+            f"  color:{theme.LIME};"
+            f"  border:2px solid rgba(17,17,17,210);"
+            f"  font-size:22px; font-weight:900;"
+            f"  padding:0;"
+            f"}}"
+            f"QToolButton#review-nav:hover {{"
+            f"  background:{theme.LIME};"
+            f"  color:{theme.INK};"
+            f"  border:2px solid {theme.INK};"
+            f"}}"
+            f"QToolButton#review-nav:disabled {{"
+            f"  background:rgba(17,17,17,90);"
+            f"  color:rgba(214,238,44,90);"
+            f"  border:2px solid rgba(17,17,17,90);"
+            f"}}"
+        )
+        self.btn_prev = QToolButton(self._image_stack_host)
+        self.btn_prev.setObjectName("review-nav")
+        self.btn_prev.setText("◀")
+        self.btn_prev.setToolTip("Previous image (Left arrow)")
+        self.btn_prev.setFixedSize(QSize(56, 100))
+        self.btn_prev.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_prev.setStyleSheet(nav_style)
+        self.btn_prev.clicked.connect(self._prev)
+        self.btn_prev.raise_()
+
+        self.btn_next = QToolButton(self._image_stack_host)
+        self.btn_next.setObjectName("review-nav")
+        self.btn_next.setText("▶")
+        self.btn_next.setToolTip("Next image (Right arrow)")
+        self.btn_next.setFixedSize(QSize(56, 100))
+        self.btn_next.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_next.setStyleSheet(nav_style)
+        self.btn_next.clicked.connect(self._next)
+        self.btn_next.raise_()
+
+        # Reposition the overlay buttons whenever the host resizes.
+        self._image_stack_host.installEventFilter(self)
+
+        image_pane = self._image_stack_host
 
         # --- Right report panel -----------------------------------------
         report_holder = QFrame()
@@ -343,6 +356,35 @@ class FullReviewDialog(QDialog):
         root.setSpacing(0)
         root.addWidget(self._toolbar)
         root.addWidget(splitter, 1)
+
+    # ------------------------------------------------------------------
+    # Overlay nav button positioning
+    # ------------------------------------------------------------------
+
+    def eventFilter(self, obj, event):  # type: ignore[override]
+        if obj is self._image_stack_host and event.type() == QEvent.Type.Resize:
+            self._reposition_nav()
+        return super().eventFilter(obj, event)
+
+    def _reposition_nav(self) -> None:
+        host = self._image_stack_host
+        margin = 14
+        y = (host.height() - self.btn_prev.height()) // 2
+        self.btn_prev.move(margin, max(margin, y))
+        self.btn_next.move(
+            host.width() - self.btn_next.width() - margin,
+            max(margin, y),
+        )
+        # Make sure the overlay buttons stay above the QStackedLayout
+        # children that get re-stacked when the empty state toggles.
+        self.btn_prev.raise_()
+        self.btn_next.raise_()
+
+    def showEvent(self, event):  # type: ignore[override]
+        super().showEvent(event)
+        # Defer one pass so widget sizes have settled before we move
+        # the overlay buttons into place.
+        self._reposition_nav()
 
     # ------------------------------------------------------------------
     # Navigation

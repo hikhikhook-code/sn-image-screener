@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PySide6.QtCore import Signal, Qt
+from PySide6.QtCore import QEvent, Signal, Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
@@ -44,6 +44,7 @@ class ReportPanel(QWidget):
     """Inspection report widget for one :class:`AnatomyResult`."""
 
     region_clicked = Signal(str)   # emit region.id when a row is selected
+    region_hovered = Signal(str)   # emit region.id on hover, "" on leave
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -132,6 +133,11 @@ class ReportPanel(QWidget):
             "QListWidget::item:selected{background:#D6EE2C; color:#111111;}"
         )
         self.lst_defects.itemClicked.connect(self._on_defect_clicked)
+        # Hovering a row briefly highlights the corresponding marker in
+        # the image preview, no click required.
+        self.lst_defects.setMouseTracking(True)
+        self.lst_defects.itemEntered.connect(self._on_defect_entered)
+        self.lst_defects.viewport().installEventFilter(self)
         self.lst_defects.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding,
         )
@@ -267,6 +273,19 @@ class ReportPanel(QWidget):
         rid = item.data(Qt.ItemDataRole.UserRole)
         if rid:
             self.region_clicked.emit(str(rid))
+
+    def _on_defect_entered(self, item: QListWidgetItem) -> None:
+        rid = item.data(Qt.ItemDataRole.UserRole)
+        if rid:
+            self.region_hovered.emit(str(rid))
+
+    def eventFilter(self, obj, event):  # type: ignore[override]
+        # Clear the marker highlight when the cursor leaves the
+        # defect-list viewport so the overlay doesn't stay frozen on
+        # the last-hovered region.
+        if obj is self.lst_defects.viewport() and event.type() == QEvent.Type.Leave:
+            self.region_hovered.emit("")
+        return super().eventFilter(obj, event)
 
 
 _SEV_BULLET = {
