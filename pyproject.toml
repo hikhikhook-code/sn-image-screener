@@ -1,0 +1,28 @@
+[project]
+name = "sn-image-screener"
+version = "1.0.0"
+description = "SN IMAGE SCREENER — local image quality screening with a brutalism-inspired desktop UI."
+requires-python = ">=3.10"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "hikhikhook-code" }]
+dependencies = [
+    "PySide6>=6.6",
+    "opencv-python>=4.8",
+    "scikit-image>=0.22",
+    "numpy>=1.24",
+    "Pillow>=10",
+]
+
+[project.scripts]
+sn-image-screener = "sn_image_screener.main:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["sn_image_screener*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
