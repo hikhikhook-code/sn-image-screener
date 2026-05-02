@@ -327,6 +327,8 @@ class AIPanel(QWidget):
         self.report = ReportPanel()
         self.marker.region_clicked.connect(self.report.highlight)
         self.report.region_clicked.connect(self.marker.set_highlight)
+        # Hovering a defect row also lights up the matching marker.
+        self.report.region_hovered.connect(self.marker.set_highlight)
 
         # Inner splitter so the user can drag the divider if they want
         # more report or more image.
@@ -623,11 +625,15 @@ class AIPanel(QWidget):
             title="AI Anatomy — Full Review",
             parent=self,
         )
-        # Two-way wiring with the report's defect list so clicking a
-        # row in the report highlights the corresponding marker, and
-        # clicking a marker selects the row.
+        # Two-way wiring with the report's defect list:
+        # * Clicking a marker selects the matching defect row.
+        # * Clicking a defect row highlights the matching marker.
+        # * Hovering a defect row briefly highlights its marker so the
+        #   user can scrub through the list without committing to a
+        #   click.
         dlg.marker.region_clicked.connect(report.highlight)
         report.region_clicked.connect(dlg.marker.set_highlight)
+        report.region_hovered.connect(dlg.marker.set_highlight)
         dlg.exec()
 
 
