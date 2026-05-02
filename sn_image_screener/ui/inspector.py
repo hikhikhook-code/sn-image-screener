@@ -86,20 +86,34 @@ class Inspector(QFrame):
         self._preview_stack.addWidget(self.preview)
 
         self._preview_empty = EmptyState(
-            title="NO IMAGE SELECTED",
-            body=(
-                "Pick a row from the results table on the left to preview "
-                "the image and its metrics here."
-            ),
+            title="SELECT AN IMAGE",
+            body="Pick a row from the results table to preview it here.",
         )
         self._preview_stack.addWidget(self._preview_empty)
         self._preview_stack.setCurrentIndex(1)
         outer.addWidget(preview_host)
 
+        # Detailed metrics container — hidden until a scan has run so
+        # the empty inspector doesn't read as "broken with dashes".
+        # The body shows a single empty-state card in that case via
+        # ``_metrics_empty``.
+        self._metrics_empty = EmptyState(
+            title="NO METRICS YET",
+            body="Run a scan to see metrics and issues for each image.",
+        )
+        outer.addWidget(self._metrics_empty)
+
+        self._metrics_box = QFrame()
+        self._metrics_box.setObjectName("inspector-metrics")
+        self._metrics_box.setStyleSheet("background:transparent;")
+        mv = QVBoxLayout(self._metrics_box)
+        mv.setContentsMargins(0, 0, 0, 0)
+        mv.setSpacing(12)
+
         # Filename + headline numbers -----------------------------------
         self.lbl_name = label("—", bold=True, size=12)
         self.lbl_name.setWordWrap(True)
-        outer.addWidget(self.lbl_name)
+        mv.addWidget(self.lbl_name)
 
         info_row = QHBoxLayout()
         info_row.setSpacing(8)
@@ -108,7 +122,7 @@ class Inspector(QFrame):
         info_row.addWidget(self.lbl_dim)
         info_row.addWidget(self.lbl_size)
         info_row.addStretch(1)
-        outer.addLayout(info_row)
+        mv.addLayout(info_row)
 
         # Metric grid ---------------------------------------------------
         grid = QGridLayout()
@@ -125,23 +139,38 @@ class Inspector(QFrame):
         grid.addWidget(self.m_exposure, 2, 0)
         grid.addWidget(self.m_artifact, 2, 1)
         grid.addWidget(self.m_dyn,      3, 0, 1, 2)
-        outer.addLayout(grid)
+        mv.addLayout(grid)
 
         # Issues --------------------------------------------------------
         issues_caption = QLabel("ISSUES")
         issues_caption.setObjectName("metric-label")
-        outer.addWidget(issues_caption)
+        mv.addWidget(issues_caption)
 
         self.issues_host = QFrame()
         self.issues_layout = QHBoxLayout(self.issues_host)
         self.issues_layout.setContentsMargins(0, 0, 0, 0)
         self.issues_layout.setSpacing(6)
         self.issues_layout.addStretch(1)
-        outer.addWidget(self.issues_host)
+        mv.addWidget(self.issues_host)
 
+        outer.addWidget(self._metrics_box)
         outer.addStretch(1)
 
+        # Default: no scan results yet → metrics hidden, only the empty
+        # state card and the preview empty state are visible.
+        self.set_metrics_visible(False)
+
     # ----------------------------------------------------------------- API
+
+    def set_metrics_visible(self, visible: bool) -> None:
+        """Show or hide the metric grid + issues row.
+
+        MainWindow calls this whenever the results table grows from 0
+        rows to non-empty (and vice versa), so users never see a row of
+        "—" placeholders before the first scan.
+        """
+        self._metrics_box.setVisible(visible)
+        self._metrics_empty.setVisible(not visible)
 
     def show_item(self, item: Optional[ScanItem]) -> None:
         if item is None:

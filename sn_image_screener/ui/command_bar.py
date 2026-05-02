@@ -124,7 +124,12 @@ class CommandBar(QFrame):
         layout.addWidget(self.btn_stop)
 
         self.btn_export = QPushButton("Export Results")
-        self.btn_export.setObjectName("brutal-secondary")
+        # Stays a quiet ghost button until results exist; ``set_can_export``
+        # promotes it to the lime primary style once the table has rows so
+        # the call-to-action lines up with how users actually progress.
+        self.btn_export.setObjectName("brutal-ghost")
+        self.btn_export.setEnabled(False)
+        self.btn_export.setToolTip("Run a scan first")
         self.btn_export.clicked.connect(self.export_clicked.emit)
         layout.addWidget(self.btn_export)
 
@@ -164,3 +169,25 @@ class CommandBar(QFrame):
             )
         else:
             self.btn_delete.setToolTip("Run a scan first")
+
+    def set_can_export(self, can_export: bool, count: int = 0) -> None:
+        """Promote the Export button to lime-primary once results exist.
+
+        Called by MainWindow whenever the results table changes — empty
+        table = quiet ghost button (so it doesn't compete with Add
+        Folder / Add Files for attention), populated table = lime
+        primary so the user knows it's the next meaningful step.
+        """
+        self.btn_export.setEnabled(can_export)
+        new_role = "brutal-primary" if can_export else "brutal-ghost"
+        if self.btn_export.objectName() != new_role:
+            self.btn_export.setObjectName(new_role)
+            # Force Qt to re-evaluate the per-objectName QSS selector.
+            self.btn_export.style().unpolish(self.btn_export)
+            self.btn_export.style().polish(self.btn_export)
+        if can_export:
+            self.btn_export.setToolTip(
+                f"Export {count} result(s) to CSV / TXT"
+            )
+        else:
+            self.btn_export.setToolTip("Run a scan first")

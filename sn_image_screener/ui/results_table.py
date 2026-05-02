@@ -105,6 +105,7 @@ class ResultsTable(QFrame):
     """A QTableWidget wrapped in a brutalist card."""
 
     selection_changed = Signal(object)  # ScanItem | None
+    empty_action_clicked = Signal(int)  # 0 = Add Folder, 1 = Add Files
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -145,11 +146,13 @@ class ResultsTable(QFrame):
 
         self._empty = EmptyState(
             title="NO RESULTS YET",
-            body=(
-                "Add a folder or files in the top bar, pick a preset, "
-                "then click Start Scan to populate this table."
-            ),
+            body="Add images, choose a preset, then start scan.",
         )
+        # Quick actions: forward the EmptyState clicks so MainWindow
+        # can route them to its existing ``add_folder`` / ``add_files``
+        # slots.
+        self._empty.set_actions(["Add Folder", "Add Files"])
+        self._empty.action_clicked.connect(self.empty_action_clicked.emit)
         self._stack.addWidget(self._empty)
 
         outer.addWidget(host)

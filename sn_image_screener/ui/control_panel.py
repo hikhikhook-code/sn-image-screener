@@ -55,6 +55,11 @@ class ControlPanel(QFrame):
     start_clicked      = Signal()
     output_changed     = Signal(str)
     rules_changed      = Signal()
+    # Emitted by the small "Add Folder" / "Add Files" buttons embedded in
+    # the empty-state sticky footer. MainWindow routes them to the same
+    # slots as the top command-bar buttons.
+    add_folder_clicked = Signal()
+    add_files_clicked  = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -295,11 +300,54 @@ class ControlPanel(QFrame):
         layout.addStretch(1)
 
         # --- Sticky bottom block (OUTSIDE the scroll area) --------------
+        # Two stacked footers swap based on whether any sources have
+        # been added: the empty footer is a compact prompt with two
+        # mini-buttons, the populated footer is the big START SCAN.
+        # ``update_source_summary`` flips ``QStackedLayout`` accordingly.
+        from PySide6.QtWidgets import QStackedLayout
+
         sticky = QFrame()
         sticky.setObjectName("control-sticky")
-        sticky_lay = QVBoxLayout(sticky)
-        sticky_lay.setContentsMargins(14, 10, 14, 14)
-        sticky_lay.setSpacing(6)
+        self._sticky_stack = QStackedLayout(sticky)
+        self._sticky_stack.setContentsMargins(0, 0, 0, 0)
+        self._sticky_stack.setStackingMode(QStackedLayout.StackingMode.StackOne)
+
+        # 1) Empty state — compact prompt.
+        empty_box = QFrame()
+        empty_lay = QVBoxLayout(empty_box)
+        empty_lay.setContentsMargins(14, 10, 14, 12)
+        empty_lay.setSpacing(6)
+
+        self.lbl_sticky_empty = QLabel(
+            "No source added — add folder or files first"
+        )
+        self.lbl_sticky_empty.setObjectName("scroll-hint")
+        self.lbl_sticky_empty.setWordWrap(True)
+        self.lbl_sticky_empty.setAlignment(Qt.AlignCenter)
+        empty_lay.addWidget(self.lbl_sticky_empty)
+
+        empty_btn_row = QHBoxLayout()
+        empty_btn_row.setSpacing(6)
+        self.btn_sticky_add_folder = QPushButton("Add Folder")
+        self.btn_sticky_add_folder.setObjectName("brutal-secondary")
+        self.btn_sticky_add_folder.setMinimumHeight(32)
+        self.btn_sticky_add_folder.clicked.connect(self.add_folder_clicked.emit)
+        empty_btn_row.addWidget(self.btn_sticky_add_folder, 1)
+
+        self.btn_sticky_add_files = QPushButton("Add Files")
+        self.btn_sticky_add_files.setObjectName("brutal-secondary")
+        self.btn_sticky_add_files.setMinimumHeight(32)
+        self.btn_sticky_add_files.clicked.connect(self.add_files_clicked.emit)
+        empty_btn_row.addWidget(self.btn_sticky_add_files, 1)
+        empty_lay.addLayout(empty_btn_row)
+
+        self._sticky_stack.addWidget(empty_box)
+
+        # 2) Populated state — full Start Scan button.
+        ready_box = QFrame()
+        ready_lay = QVBoxLayout(ready_box)
+        ready_lay.setContentsMargins(14, 10, 14, 14)
+        ready_lay.setSpacing(6)
 
         self.btn_start = QPushButton("▶  START SCAN")
         self.btn_start.setObjectName("brutal-primary")
@@ -311,12 +359,14 @@ class ControlPanel(QFrame):
         self.btn_start.setFont(f)
         self.btn_start.setCursor(Qt.PointingHandCursor)
         self.btn_start.clicked.connect(self.start_clicked.emit)
-        sticky_lay.addWidget(self.btn_start)
+        ready_lay.addWidget(self.btn_start)
 
         sticky_hint = QLabel("↑  scroll for advanced settings")
         sticky_hint.setObjectName("scroll-hint")
         sticky_hint.setAlignment(Qt.AlignCenter)
-        sticky_lay.addWidget(sticky_hint)
+        ready_lay.addWidget(sticky_hint)
+
+        self._sticky_stack.addWidget(ready_box)
 
         outer.addWidget(sticky, 0)
 
@@ -337,13 +387,16 @@ class ControlPanel(QFrame):
         if n == 0:
             self.lbl_source_count.setText("— no sources added —")
             self.btn_start.setEnabled(False)
-            self.btn_start.setText("▶  ADD A FOLDER FIRST")
+            self.btn_start.setText("▶  START SCAN")
+            # Show the compact "no source added" footer with mini-buttons.
+            self._sticky_stack.setCurrentIndex(0)
         else:
             self.lbl_source_count.setText(
                 f"{len(folders)} folder(s)  ·  {len(files)} loose file(s)"
             )
             self.btn_start.setEnabled(True)
             self.btn_start.setText("▶  START SCAN")
+            self._sticky_stack.setCurrentIndex(1)
 
     def current_rules(self) -> Rules:
         base = PRESETS.get(self.cmb_preset.currentText(), PRESETS["Normal"])

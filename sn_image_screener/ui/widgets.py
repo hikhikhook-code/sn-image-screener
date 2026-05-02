@@ -110,9 +110,13 @@ class EmptyState(QFrame):
     """Brutalist placeholder shown when a list / preview / panel is empty.
 
     Renders a hard-bordered card with an uppercase title and a wrapped
-    body sentence describing what the user should do next. Used by the
-    results table, inspector preview, and AI queue.
+    body sentence describing what the user should do next. Optionally
+    accepts a row of small action buttons (e.g. "Add Folder", "Add
+    Files") wired up via ``set_actions`` so the empty state can move
+    the user forward instead of just informing them.
     """
+
+    action_clicked = Signal(int)  # index of the activated action
 
     def __init__(
         self,
@@ -124,7 +128,7 @@ class EmptyState(QFrame):
         self.setObjectName("empty-state")
         self.setFrameShape(QFrame.Shape.NoFrame)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(28, 24, 28, 24)
+        layout.setContentsMargins(24, 22, 24, 22)
         layout.setSpacing(8)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -147,6 +151,18 @@ class EmptyState(QFrame):
         self._body.setFont(bf)
         layout.addWidget(self._body)
 
+        # Optional row of compact actions, populated lazily by
+        # ``set_actions``. Hidden until at least one action is added so
+        # the simple title + body variant doesn't get extra padding.
+        self._actions_host = QWidget()
+        ah = QHBoxLayout(self._actions_host)
+        ah.setContentsMargins(0, 4, 0, 0)
+        ah.setSpacing(8)
+        ah.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._actions_layout = ah
+        self._actions_host.setVisible(False)
+        layout.addWidget(self._actions_host)
+
         self.setStyleSheet(
             f"QFrame#empty-state{{background:{theme.SURFACE_ALT};"
             f"border:2px dashed {theme.INK};}}"
@@ -157,6 +173,32 @@ class EmptyState(QFrame):
     def set_text(self, title: str, body: str) -> None:
         self._title.setText(title.upper())
         self._body.setText(body)
+
+    def set_actions(self, labels: List[str]) -> None:
+        """Populate the action row. Each click emits ``action_clicked(i)``.
+
+        Calling with an empty list hides the row again.
+        """
+        # Clear existing buttons.
+        while self._actions_layout.count():
+            child = self._actions_layout.takeAt(0)
+            w = child.widget() if child is not None else None
+            if w is not None:
+                w.setParent(None)
+                w.deleteLater()
+
+        if not labels:
+            self._actions_host.setVisible(False)
+            return
+
+        for i, lbl in enumerate(labels):
+            btn = QPushButton(lbl)
+            btn.setObjectName("brutal-secondary")
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setMinimumHeight(28)
+            btn.clicked.connect(lambda _checked, idx=i: self.action_clicked.emit(idx))
+            self._actions_layout.addWidget(btn)
+        self._actions_host.setVisible(True)
 
 
 # --- Collapsible group ------------------------------------------------------

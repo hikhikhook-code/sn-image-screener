@@ -31,7 +31,7 @@ from ...services.ai import KeyManager
 from ...services.ai.types import (
     AIStatus, AnatomyResult, ScanDepth,
 )
-from ..widgets import EmptyState
+from ..widgets import CollapsibleGroup, EmptyState
 from .inspection_worker import InspectionWorker
 from .key_settings_dialog import KeySettingsDialog
 from .marker_view import MarkerView
@@ -137,7 +137,15 @@ class AIPanel(QWidget):
         self.lbl_source_count.setWordWrap(True)
         v.addWidget(self.lbl_source_count)
 
-        v.addWidget(_section_label("SCAN DEPTH"))
+        # ── SETUP ────────────────────────────────────────────────────
+        # Source hint + scan depth — everything the user has to decide
+        # before pressing Run.
+        grp_setup = CollapsibleGroup("Setup", expanded=True)
+        v.addWidget(grp_setup)
+
+        depth_lbl = QLabel("Scan depth")
+        depth_lbl.setStyleSheet("font-weight:700; letter-spacing:1px;")
+        grp_setup.add(depth_lbl)
         self.rb_depth: Dict[ScanDepth, QRadioButton] = {}
         depth_group = QButtonGroup(self)
         for depth in (ScanDepth.FAST, ScanDepth.DETAILED, ScanDepth.ULTRA):
@@ -146,50 +154,30 @@ class AIPanel(QWidget):
             rb.setToolTip(_DEPTH_HELP[depth])
             self.rb_depth[depth] = rb
             depth_group.addButton(rb)
-            v.addWidget(rb)
+            grp_setup.add(rb)
         self.rb_depth[ScanDepth.DETAILED].setChecked(True)
 
-        v.addWidget(_section_label("API KEYS"))
-        self.lbl_keys = QLabel()
-        self.lbl_keys.setWordWrap(True)
-        v.addWidget(self.lbl_keys)
-        self.btn_keys = QPushButton("MANAGE API KEYS")
-        self.btn_keys.clicked.connect(self._on_manage_keys)
-        v.addWidget(self.btn_keys)
-
-        v.addWidget(_section_label("PARALLEL WORKERS"))
-        wk_row = QHBoxLayout()
-        wk_row.setSpacing(6)
-        self.sp_workers = QSpinBox()
-        self.sp_workers.setRange(1, 32)
-        self.sp_workers.setValue(1)
-        self.sp_workers.setMinimumWidth(60)
-        wk_row.addWidget(self.sp_workers)
-        self.btn_auto_workers = QPushButton("AUTO")
-        self.btn_auto_workers.setToolTip(
-            "Set workers = number of usable API keys (capped at 16)."
-        )
-        self.btn_auto_workers.clicked.connect(self._on_auto_workers)
-        wk_row.addWidget(self.btn_auto_workers)
-        wk_row.addStretch(1)
-        v.addLayout(wk_row)
-
-        v.addWidget(_section_label("RUN"))
+        # ── EXECUTION ────────────────────────────────────────────────
+        # Run / Stop / progress + the inline run-disabled reason.
+        grp_exec = CollapsibleGroup("Execution", expanded=True)
+        v.addWidget(grp_exec)
 
         self.btn_run = QPushButton("\u25B6  RUN AI ANATOMY CHECK")
         self.btn_run.setMinimumHeight(44)
+        # Run uses the brutalist *lime* primary now — orange is reserved
+        # for warnings / reject badges so it doesn't read as an error.
         self.btn_run.setStyleSheet(
-            "QPushButton{background:#FF4D2E; color:#111111;"
+            "QPushButton{background:#D6EE2C; color:#111111;"
             "border:2px solid #111111; font-weight:bold; letter-spacing:1px;}"
-            "QPushButton:hover{background:#FF6A4F;}"
+            "QPushButton:hover{background:#E4F95B;}"
             "QPushButton:disabled{background:#C9C2B2; color:#8A8377;}"
         )
         self.btn_run.clicked.connect(self._on_run)
-        v.addWidget(self.btn_run)
+        grp_exec.add(self.btn_run)
 
-        # Inline reason that explains *why* RUN is disabled. We keep
-        # a separate label (not just a tooltip) so the message is
-        # always visible without requiring hover.
+        # Inline reason that explains *why* RUN is disabled. We keep a
+        # separate label (not just a tooltip) so the message is always
+        # visible without requiring hover. Re-using the alert style.
         self.lbl_run_reason = QLabel("")
         self.lbl_run_reason.setObjectName("run-reason")
         self.lbl_run_reason.setWordWrap(True)
@@ -199,21 +187,63 @@ class AIPanel(QWidget):
             "background:#FFE2D9;"
         )
         self.lbl_run_reason.hide()
-        v.addWidget(self.lbl_run_reason)
+        grp_exec.add(self.lbl_run_reason)
 
         self.btn_stop = QPushButton("STOP")
         self.btn_stop.clicked.connect(self._on_stop)
         self.btn_stop.setEnabled(False)
-        v.addWidget(self.btn_stop)
+        grp_exec.add(self.btn_stop)
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
-        v.addWidget(self.progress)
+        grp_exec.add(self.progress)
 
         self.lbl_progress = QLabel("Idle.")
         self.lbl_progress.setStyleSheet("color:#555555;")
-        v.addWidget(self.lbl_progress)
+        grp_exec.add(self.lbl_progress)
+
+        # ── ADVANCED ─────────────────────────────────────────────────
+        # API keys + parallel workers. Expanded by default per UX
+        # request — both controls remain visible — but kept inside a
+        # collapsible group so users on small windows can fold them
+        # away and the column doesn't feel crowded.
+        grp_adv = CollapsibleGroup("Advanced", expanded=True)
+        v.addWidget(grp_adv)
+
+        keys_lbl = QLabel("API keys")
+        keys_lbl.setStyleSheet("font-weight:700; letter-spacing:1px;")
+        grp_adv.add(keys_lbl)
+        self.lbl_keys = QLabel()
+        self.lbl_keys.setWordWrap(True)
+        grp_adv.add(self.lbl_keys)
+        self.btn_keys = QPushButton("MANAGE API KEYS")
+        self.btn_keys.clicked.connect(self._on_manage_keys)
+        grp_adv.add(self.btn_keys)
+
+        workers_lbl = QLabel("Parallel workers")
+        workers_lbl.setStyleSheet(
+            "font-weight:700; letter-spacing:1px; padding-top:6px;"
+        )
+        grp_adv.add(workers_lbl)
+        wk_row = QHBoxLayout()
+        wk_row.setSpacing(6)
+        self.sp_workers = QSpinBox()
+        self.sp_workers.setRange(1, 32)
+        self.sp_workers.setValue(1)
+        self.sp_workers.setMinimumWidth(60)
+        self.sp_workers.setToolTip(
+            "Number of inspection requests to run in parallel."
+        )
+        wk_row.addWidget(self.sp_workers)
+        self.btn_auto_workers = QPushButton("AUTO")
+        self.btn_auto_workers.setToolTip(
+            "Set workers = number of usable API keys (capped at 16)."
+        )
+        self.btn_auto_workers.clicked.connect(self._on_auto_workers)
+        wk_row.addWidget(self.btn_auto_workers)
+        wk_row.addStretch(1)
+        grp_adv.add_layout(wk_row)
 
         v.addStretch(1)
 
