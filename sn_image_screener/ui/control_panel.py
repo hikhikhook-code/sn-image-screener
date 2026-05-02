@@ -40,8 +40,8 @@ def _dspinbox(value: float, lo: float = 0.0, hi: float = 99999.0, step: float = 
     return s
 
 
-class ControlPanel(QScrollArea):
-    """Left side panel — emits signals for command-bar-equivalent actions."""
+class ControlPanel(QFrame):
+    """Left side panel — scrollable settings on top, sticky START SCAN at the bottom."""
 
     add_folder_clicked = Signal()
     add_files_clicked  = Signal()
@@ -52,15 +52,26 @@ class ControlPanel(QScrollArea):
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.setWidgetResizable(True)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setFrameShape(QFrame.NoFrame)
         self.setMinimumWidth(310)
         self.setMaximumWidth(440)
+        self.setObjectName("control-panel-root")
+
+        # Outer layout: scroll area (top) + sticky START SCAN block (bottom)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        self.scroll = QScrollArea(self)
+        self.scroll.setObjectName("control-scroll")
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.scroll.setFrameShape(QFrame.NoFrame)
+        outer.addWidget(self.scroll, 1)
 
         host = QWidget()
         host.setObjectName("root")
-        self.setWidget(host)
+        self.scroll.setWidget(host)
 
         layout = QVBoxLayout(host)
         layout.setContentsMargins(14, 14, 14, 14)
@@ -209,18 +220,33 @@ class ControlPanel(QScrollArea):
             spin.valueChanged.connect(self.rules_changed.emit)
         self.grp_advanced.add_layout(adv_form)
 
-        # --- Quick-start CTA ---------------------------------------------
+        layout.addStretch(1)
+
+        # --- Sticky bottom block (OUTSIDE the scroll area) --------------
+        sticky = QFrame()
+        sticky.setObjectName("control-sticky")
+        sticky_lay = QVBoxLayout(sticky)
+        sticky_lay.setContentsMargins(14, 10, 14, 14)
+        sticky_lay.setSpacing(6)
+
         self.btn_start = QPushButton("▶  START SCAN")
         self.btn_start.setObjectName("brutal-primary")
-        self.btn_start.setMinimumHeight(46)
+        self.btn_start.setMinimumHeight(54)
         f = self.btn_start.font()
-        f.setPointSize(13)
+        f.setPointSize(14)
         f.setBold(True)
+        f.setLetterSpacing(f.SpacingType.AbsoluteSpacing, 1.2)
         self.btn_start.setFont(f)
+        self.btn_start.setCursor(Qt.PointingHandCursor)
         self.btn_start.clicked.connect(self.start_clicked.emit)
-        layout.addWidget(self.btn_start)
+        sticky_lay.addWidget(self.btn_start)
 
-        layout.addStretch(1)
+        sticky_hint = QLabel("↑  scroll for advanced settings")
+        sticky_hint.setObjectName("scroll-hint")
+        sticky_hint.setAlignment(Qt.AlignCenter)
+        sticky_lay.addWidget(sticky_hint)
+
+        outer.addWidget(sticky, 0)
 
         # Apply default preset to spinboxes.
         self._on_preset_changed("Normal")
@@ -238,10 +264,14 @@ class ControlPanel(QScrollArea):
         n = len(folders) + len(files)
         if n == 0:
             self.lbl_source_count.setText("— no sources added —")
+            self.btn_start.setEnabled(False)
+            self.btn_start.setText("▶  ADD A FOLDER FIRST")
         else:
             self.lbl_source_count.setText(
                 f"{len(folders)} folder(s)  ·  {len(files)} loose file(s)"
             )
+            self.btn_start.setEnabled(True)
+            self.btn_start.setText("▶  START SCAN")
 
     def current_rules(self) -> Rules:
         base = PRESETS.get(self.cmb_preset.currentText(), PRESETS["Normal"])

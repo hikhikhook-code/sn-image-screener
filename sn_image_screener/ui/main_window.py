@@ -200,6 +200,7 @@ class MainWindow(QMainWindow):
             return
         self._folders.append(p)
         self.control_panel.update_source_summary(self._folders, self._files)
+        self._refresh_source_state()
         self.log_panel.info(f"Folder added · {p}")
 
     def add_files(self) -> None:
@@ -216,13 +217,20 @@ class MainWindow(QMainWindow):
                 self._files.append(p)
                 added += 1
         self.control_panel.update_source_summary(self._folders, self._files)
+        self._refresh_source_state()
         self.log_panel.info(f"{added} file(s) added")
 
     def clear_sources(self) -> None:
         self._folders.clear()
         self._files.clear()
         self.control_panel.update_source_summary(self._folders, self._files)
+        self._refresh_source_state()
         self.log_panel.info("Sources cleared")
+
+    def _refresh_source_state(self) -> None:
+        """Mirror the disabled-when-empty state to the command bar START button."""
+        has_source = bool(self._folders) or bool(self._files)
+        self.command_bar.set_can_start(has_source)
 
     # =====================================================================
     # Scanning

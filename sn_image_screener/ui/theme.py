@@ -75,6 +75,25 @@ QFrame#brutal-divider {{
     max-height: 2px;
 }}
 
+/* Left control panel (root + sticky footer) ----------------------------- */
+QFrame#control-panel-root {{
+    background: {SURFACE_ALT};
+    border-right: 2px solid {INK};
+}}
+
+QFrame#control-sticky {{
+    background: {LIME};
+    border-top: 2px solid {INK};
+}}
+
+QLabel#scroll-hint {{
+    color: {INK};
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    background: transparent;
+}}
+
 QLabel#brand-title {{
     font-size: 22px;
     font-weight: 900;
@@ -157,6 +176,11 @@ QPushButton#brutal-primary:hover {{
     background: {INK};
     color: {ORANGE};
 }}
+QPushButton#brutal-primary:disabled {{
+    background: {SURFACE_ALT};
+    color: {INK_MUTED};
+    border-color: {INK_MUTED};
+}}
 
 QPushButton#brutal-secondary {{
     background: {LIME};
@@ -165,6 +189,11 @@ QPushButton#brutal-secondary {{
 QPushButton#brutal-secondary:hover {{
     background: {INK};
     color: {LIME};
+}}
+QPushButton#brutal-secondary:disabled {{
+    background: {SURFACE_ALT};
+    color: {INK_MUTED};
+    border-color: {INK_MUTED};
 }}
 
 QPushButton#brutal-ghost {{
@@ -301,17 +330,38 @@ QTableWidget::item {{
 
 QScrollBar:vertical {{
     background: {SURFACE_ALT};
-    width: 12px;
+    width: 16px;
     border-left: 2px solid {INK};
     margin: 0;
 }}
 QScrollBar::handle:vertical {{
     background: {INK};
-    min-height: 30px;
+    min-height: 36px;
+    border: 2px solid {INK};
+    margin: 2px;
+}}
+QScrollBar::handle:vertical:hover {{
+    background: {COBALT};
     border: 2px solid {INK};
 }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
     height: 0;
+}}
+
+/* High-contrast scroll for the left control panel ----------------------- */
+QScrollArea#control-scroll > QScrollBar:vertical {{
+    background: {LIME};
+    width: 18px;
+    border-left: 2px solid {INK};
+}}
+QScrollArea#control-scroll > QScrollBar::handle:vertical {{
+    background: {INK};
+    min-height: 50px;
+    border: 2px solid {INK};
+    margin: 2px;
+}}
+QScrollArea#control-scroll > QScrollBar::handle:vertical:hover {{
+    background: {ORANGE};
 }}
 
 QScrollBar:horizontal {{

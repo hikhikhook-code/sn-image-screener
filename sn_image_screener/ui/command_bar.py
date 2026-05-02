@@ -95,8 +95,11 @@ class CommandBar(QFrame):
 
         self.btn_start = QPushButton("Start Scan")
         self.btn_start.setObjectName("brutal-primary")
+        self.btn_start.setEnabled(False)
+        self.btn_start.setToolTip("Add a folder or files first")
         self.btn_start.clicked.connect(self.start_clicked.emit)
         layout.addWidget(self.btn_start)
+        self._can_start = False
 
         self.btn_stop = QPushButton("Stop")
         self.btn_stop.setEnabled(False)
@@ -118,5 +121,12 @@ class CommandBar(QFrame):
         self.status.set_status(status)
 
     def set_scanning(self, scanning: bool) -> None:
-        self.btn_start.setEnabled(not scanning)
+        self.btn_start.setEnabled(self._can_start and not scanning)
         self.btn_stop.setEnabled(scanning)
+
+    def set_can_start(self, can_start: bool) -> None:
+        self._can_start = can_start
+        self.btn_start.setEnabled(can_start)
+        self.btn_start.setToolTip(
+            "" if can_start else "Add a folder or files first"
+        )
