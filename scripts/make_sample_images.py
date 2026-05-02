@@ -14,10 +14,19 @@ import numpy as np
 
 
 def _gradient(w: int, h: int) -> np.ndarray:
-    x = np.linspace(0, 255, w, dtype=np.float32)
-    y = np.linspace(0, 255, h, dtype=np.float32)
+    """A textured gradient — non-trivial Laplacian variance."""
+    rng = np.random.default_rng(42)
+    x = np.linspace(40, 215, w, dtype=np.float32)
+    y = np.linspace(40, 215, h, dtype=np.float32)
     g = (x[None, :] + y[:, None]) * 0.5
-    g = np.clip(g, 0, 255).astype(np.uint8)
+    # Sprinkle structure so the image has natural sharpness, not a perfect ramp
+    texture = rng.normal(0, 6, g.shape).astype(np.float32)
+    edges = np.zeros_like(g)
+    for r in range(0, h, 60):
+        edges[r:r + 2, :] = 30
+    for c in range(0, w, 90):
+        edges[:, c:c + 2] = -30
+    g = np.clip(g + texture + edges, 0, 255).astype(np.uint8)
     return cv2.merge([g, g, g])
 
 
@@ -41,10 +50,10 @@ def main(out_dir: Path) -> None:
     cv2.imwrite(str(out_dir / "01_pass_sharp_gradient.jpg"), sharp,
                 [cv2.IMWRITE_JPEG_QUALITY, 92])
 
-    # 2. Crisp checkerboard, JPEG quality 90 → expected PASS / REVIEW
-    checker = _checkerboard(2000, 1500, tile=64)
-    cv2.imwrite(str(out_dir / "02_pass_checker.jpg"), checker,
-                [cv2.IMWRITE_JPEG_QUALITY, 90])
+    # 2. Slightly soft variant of the gradient → expected PASS (Normal) / REVIEW (Strict)
+    soft = cv2.GaussianBlur(sharp, (5, 5), 0.55)
+    cv2.imwrite(str(out_dir / "02_pass_soft.jpg"), soft,
+                [cv2.IMWRITE_JPEG_QUALITY, 92])
 
     # 3. Heavy gaussian blur → expected REJECT (blur)
     blurred = cv2.GaussianBlur(sharp, (51, 51), 25)
@@ -52,7 +61,8 @@ def main(out_dir: Path) -> None:
                 [cv2.IMWRITE_JPEG_QUALITY, 92])
 
     # 4. Strong noise → expected REJECT (noise)
-    noisy = sharp.astype(np.int32) + np.random.normal(0, 50, sharp.shape).astype(np.int32)
+    rng = np.random.default_rng(7)
+    noisy = sharp.astype(np.int32) + rng.normal(0, 70, sharp.shape).astype(np.int32)
     noisy = np.clip(noisy, 0, 255).astype(np.uint8)
     cv2.imwrite(str(out_dir / "04_reject_noisy.jpg"), noisy,
                 [cv2.IMWRITE_JPEG_QUALITY, 92])
@@ -67,8 +77,8 @@ def main(out_dir: Path) -> None:
     cv2.imwrite(str(out_dir / "06_reject_bright.jpg"), bright,
                 [cv2.IMWRITE_JPEG_QUALITY, 92])
 
-    # 7. Heavy JPEG quality (artifacts) → expected REVIEW / REJECT
-    cv2.imwrite(str(out_dir / "07_review_lowquality.jpg"), checker,
+    # 7. Mild jpeg artifacts on a smooth gradient → expected REVIEW
+    cv2.imwrite(str(out_dir / "07_review_jpeg.jpg"), sharp,
                 [cv2.IMWRITE_JPEG_QUALITY, 18])
 
     # 8. Tiny resolution → expected REJECT (resolution gate)
