@@ -1,0 +1,31 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+*.spec.bak
+.venv/
+venv/
+.env
+.env.*
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.vscode/
+.idea/
+
+# PyInstaller
+build/
+dist/
+*.manifest
+*.spec.bak
+
+# Output / scratch
+out/
+output/
+exports/
+
+# OS
+.DS_Store
+Thumbs.db
