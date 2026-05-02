@@ -191,7 +191,7 @@ class ControlPanel(QFrame):
                    self.chk_export_csv, self.chk_export_json):
             self.grp_output.add(cb)
         # Hint: clarify that exports are auto-organised into subfolders.
-        hint = self._hint(
+        hint = _hint(
             "Each ticked group is copied into its own subfolder "
             "(PASS / REVIEW / REJECT) inside the export folder. "
             "Original files are never moved or modified."

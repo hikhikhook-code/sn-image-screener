@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import platform
-import sys
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
@@ -12,8 +10,8 @@ from PySide6.QtCore import Qt, QThread
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication, QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel,
-    QMainWindow, QMessageBox, QProgressBar, QSizePolicy, QSplitter,
-    QStatusBar, QVBoxLayout, QWidget,
+    QMainWindow, QProgressBar, QSplitter,
+    QStatusBar, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from .. import __app_name__, __subtitle__, __version__
@@ -21,7 +19,9 @@ from ..core.classifier import Status
 from ..core.deleter import human_size, total_size, trash_files
 from ..core.exporter import copy_by_status, export_csv, export_json
 from ..core.scanner import collect_paths
+from ..services.ai import KeyManager
 from . import theme
+from .ai import AIPanel
 from .delete_dialog import DeleteConfirmDialog
 from .command_bar import CommandBar
 from .control_panel import ControlPanel
@@ -29,7 +29,6 @@ from .inspector import Inspector
 from .log_panel import LogPanel
 from .results_table import ResultsTable
 from .toast import Toaster
-from .widgets import HardDivider, label
 from .workers import ScanWorker
 
 
@@ -68,12 +67,12 @@ class MainWindow(QMainWindow):
         self.command_bar.delete_clicked.connect(self.delete_rejected)
         layout.addWidget(self.command_bar)
 
-        # Body splitter --------------------------------------------------
+        # ---- Build the Technical Quality tab body ---------------------
         self.h_split = QSplitter(Qt.Horizontal)
         self.h_split.setHandleWidth(2)
         self.h_split.setChildrenCollapsible(False)
 
-        # Left ---------------------------------------------------------
+        # Left
         self.control_panel = ControlPanel()
         self.control_panel.add_folder_clicked.connect(self.add_folder)
         self.control_panel.add_files_clicked.connect(self.add_files)
@@ -81,7 +80,7 @@ class MainWindow(QMainWindow):
         self.control_panel.start_clicked.connect(self.start_scan)
         self.h_split.addWidget(self.control_panel)
 
-        # Center: results + bottom log via vertical splitter -----------
+        # Center: results + bottom log via vertical splitter
         center_split = QSplitter(Qt.Vertical)
         center_split.setHandleWidth(2)
         center_split.setChildrenCollapsible(False)
@@ -107,7 +106,7 @@ class MainWindow(QMainWindow):
 
         self.h_split.addWidget(center_split)
 
-        # Right --------------------------------------------------------
+        # Right
         self.inspector = Inspector()
         self.h_split.addWidget(self.inspector)
 
@@ -116,7 +115,25 @@ class MainWindow(QMainWindow):
         self.h_split.setStretchFactor(2, 0)
         self.h_split.setSizes([330, 760, 360])
 
-        layout.addWidget(self.h_split, 1)
+        # ---- Build the AI Anatomy Inspector tab -----------------------
+        self.key_manager = KeyManager()
+        self.ai_panel = AIPanel(self.key_manager)
+        self.ai_panel.log_line.connect(self._on_ai_log)
+
+        # ---- Tab container --------------------------------------------
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self.h_split, "TECHNICAL QUALITY")
+        self.tabs.addTab(self.ai_panel, "AI ANATOMY INSPECTOR")
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+        self.tabs.setStyleSheet(
+            f"QTabWidget::pane{{border:2px solid {theme.INK}; top:-2px;}}"
+            f"QTabBar::tab{{padding:8px 18px; margin-right:2px;"
+            f" border:2px solid {theme.INK}; background:{theme.SURFACE_ALT};"
+            f" color:{theme.INK}; font-weight:bold; letter-spacing:1px;}}"
+            f"QTabBar::tab:selected{{background:{theme.LIME};"
+            f" color:{theme.INK};}}"
+        )
+        layout.addWidget(self.tabs, 1)
 
         # Status bar ----------------------------------------------------
         self.setStatusBar(QStatusBar())
@@ -211,6 +228,7 @@ class MainWindow(QMainWindow):
         self._folders.append(p)
         self.control_panel.update_source_summary(self._folders, self._files)
         self._refresh_source_state()
+        self._sync_ai_files()
         self.log_panel.info(f"Folder added · {p}")
         self.toaster.ok("Folder added", p.name or str(p))
 
@@ -229,6 +247,7 @@ class MainWindow(QMainWindow):
                 added += 1
         self.control_panel.update_source_summary(self._folders, self._files)
         self._refresh_source_state()
+        self._sync_ai_files()
         self.log_panel.info(f"{added} file(s) added")
         if added:
             self.toaster.ok("Files added", f"{added} image(s) queued")
@@ -238,8 +257,46 @@ class MainWindow(QMainWindow):
         self._files.clear()
         self.control_panel.update_source_summary(self._folders, self._files)
         self._refresh_source_state()
+        self._sync_ai_files()
         self.log_panel.info("Sources cleared")
         self.toaster.info("Sources cleared")
+
+    def _sync_ai_files(self) -> None:
+        """Push the current source list into the AI tab's queue."""
+        try:
+            paths = collect_paths(self._folders, self._files)
+        except Exception:  # noqa: BLE001
+            paths = []
+        self.ai_panel.set_files(paths)
+
+    def _on_tab_changed(self, index: int) -> None:
+        """Adjust the command bar to match the active tab.
+
+        Technical Quality (index 0) keeps Start / Export / Delete enabled;
+        AI Anatomy Inspector (index 1) shows the same command bar but
+        Start / Export / Delete are disabled because the AI tab has its
+        own RUN button and uses Export Results from the Technical tab
+        for now.
+        """
+        is_technical = (index == 0)
+        self.command_bar.set_can_start(
+            is_technical and (bool(self._folders) or bool(self._files))
+        )
+        self.command_bar.set_scanning(False)
+        # Push the latest file list into the AI tab whenever the user
+        # switches over so the queue is always fresh.
+        if not is_technical:
+            self._sync_ai_files()
+
+    def _on_ai_log(self, line: str) -> None:
+        """Forward AI worker log lines into the activity log panel."""
+        # Use info level — errors carry their own marker text.
+        if "ERROR" in line.upper() or "FAILED" in line.upper():
+            self.log_panel.err(f"AI · {line}")
+        elif "switching" in line.lower():
+            self.log_panel.warn(f"AI · {line}")
+        else:
+            self.log_panel.info(f"AI · {line}")
 
     def _refresh_source_state(self) -> None:
         """Mirror the disabled-when-empty state to the command bar START button."""
@@ -405,14 +462,19 @@ class MainWindow(QMainWindow):
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         try:
+            # If the user has run the AI Anatomy Inspector, fold those
+            # results into the report (CSV gets extra columns, JSON gets
+            # a nested ``ai`` block per row including defect_regions).
+            ai_results = self.ai_panel.results() if hasattr(self, "ai_panel") else {}
+
             # CSV / JSON reports
             if self.control_panel.chk_export_csv.isChecked():
                 csv_path = out / f"report_{ts}.csv"
-                export_csv(items, csv_path)
+                export_csv(items, csv_path, ai_results=ai_results or None)
                 self.log_panel.ok(f"CSV report → {csv_path}")
             if self.control_panel.chk_export_json.isChecked():
                 json_path = out / f"report_{ts}.json"
-                export_json(items, json_path)
+                export_json(items, json_path, ai_results=ai_results or None)
                 self.log_panel.ok(f"JSON report → {json_path}")
 
             # Copy files into per-status subfolders (PASS / REVIEW / REJECT).
