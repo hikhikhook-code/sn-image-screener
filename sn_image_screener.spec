@@ -8,7 +8,10 @@ a = Analysis(
     ['run.py'],
     pathex=['.'],
     binaries=[],
-    datas=[],
+    datas=[
+        ('sn_image_screener/assets/*.png', 'sn_image_screener/assets'),
+        ('sn_image_screener/assets/*.ico', 'sn_image_screener/assets'),
+    ],
     hiddenimports=[
         'PySide6.QtCore',
         'PySide6.QtGui',
@@ -76,5 +79,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    # icon='sn_image_screener/assets/icon.ico',
+    icon='sn_image_screener/assets/logo.ico',
 )

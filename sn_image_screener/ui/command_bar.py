@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import theme
+from .icons import logo_pixmap
 
 
 _STATUS_PALETTE = {
@@ -68,7 +69,23 @@ class CommandBar(QFrame):
         layout.setSpacing(12)
 
         # Brand block ------------------------------------------------------
-        brand = QVBoxLayout()
+        # Logo (left) + title/subtitle (right).
+        brand_wrap = QFrame()
+        brand_h = QHBoxLayout(brand_wrap)
+        brand_h.setContentsMargins(0, 0, 0, 0)
+        brand_h.setSpacing(10)
+
+        logo = QLabel()
+        logo.setObjectName("brand-logo")
+        pm = logo_pixmap(40)
+        if not pm.isNull():
+            logo.setPixmap(pm)
+        logo.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+        brand_h.addWidget(logo)
+
+        brand_text = QFrame()
+        brand = QVBoxLayout(brand_text)
+        brand.setContentsMargins(0, 0, 0, 0)
         brand.setSpacing(0)
 
         title = QLabel("SN IMAGE SCREENER")
@@ -79,8 +96,7 @@ class CommandBar(QFrame):
         sub.setObjectName("brand-sub")
         brand.addWidget(sub)
 
-        brand_wrap = QFrame()
-        brand_wrap.setLayout(brand)
+        brand_h.addWidget(brand_text)
         layout.addWidget(brand_wrap)
 
         layout.addStretch(1)
