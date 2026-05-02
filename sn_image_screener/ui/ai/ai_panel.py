@@ -22,7 +22,7 @@ from typing import Dict, List, Optional
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QButtonGroup, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
+    QButtonGroup, QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
     QMessageBox, QProgressBar, QPushButton, QRadioButton, QScrollArea,
     QSizePolicy, QSpinBox, QSplitter, QVBoxLayout, QWidget,
 )
@@ -31,6 +31,7 @@ from ...services.ai import KeyManager
 from ...services.ai.types import (
     AIStatus, AnatomyResult, ScanDepth,
 )
+from ..widgets import EmptyState
 from .inspection_worker import InspectionWorker
 from .key_settings_dialog import KeySettingsDialog
 from .marker_view import MarkerView
@@ -39,9 +40,15 @@ from .review_dialog import AIReviewDialog
 
 
 _DEPTH_LABEL = {
-    ScanDepth.FAST: "FAST · full image only (1 inspection)",
-    ScanDepth.DETAILED: "DETAILED · 3 × 3 tiles (10 inspections) — default",
-    ScanDepth.ULTRA: "ULTRA · 4 × 4 tiles (17 inspections)",
+    ScanDepth.FAST: "FAST · 1 inspection",
+    ScanDepth.DETAILED: "DETAILED · 10 inspections (default)",
+    ScanDepth.ULTRA: "ULTRA · 17 inspections",
+}
+
+_DEPTH_HELP = {
+    ScanDepth.FAST: "Whole image only — fastest, less precise.",
+    ScanDepth.DETAILED: "3 × 3 tiles + whole image — recommended.",
+    ScanDepth.ULTRA: "4 × 4 tiles + whole image — most thorough.",
 }
 
 
@@ -49,9 +56,6 @@ class AIPanel(QWidget):
     """The AI Anatomy Inspector tab widget."""
 
     log_line = Signal(str)
-    add_folder_requested = Signal()
-    add_files_requested = Signal()
-    clear_sources_requested = Signal()
 
     def __init__(
         self,
@@ -64,6 +68,7 @@ class AIPanel(QWidget):
         self._results: Dict[str, AnatomyResult] = {}
         self._worker: Optional[InspectionWorker] = None
         self._build()
+        self._update_run_state()
 
     # ------------------------------------------------------------------
     # Build UI
@@ -81,7 +86,7 @@ class AIPanel(QWidget):
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
         splitter.setStretchFactor(2, 4)   # preview gets the lion's share
-        splitter.setSizes([300, 320, 880])
+        splitter.setSizes([340, 320, 840])
         root.addWidget(splitter)
 
     def _build_left_controls(self) -> QWidget:
@@ -91,8 +96,10 @@ class AIPanel(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setMaximumWidth(360)
-        scroll.setMinimumWidth(280)
+        # Bumped from 280 → 320 so headings, depth labels, and the
+        # inline run-disabled reason no longer clip on the right edge.
+        scroll.setMinimumWidth(320)
+        scroll.setMaximumWidth(380)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
 
         w = QWidget()
@@ -100,49 +107,33 @@ class AIPanel(QWidget):
         v.setContentsMargins(14, 14, 14, 14)
         v.setSpacing(10)
 
+        # The rail already shows "AI INSPECTOR" — keep this header
+        # short and add a single-line subtitle so this column is not
+        # crowded.
         header = QLabel("AI ANATOMY INSPECTOR")
         f = header.font()
         f.setBold(True)
-        f.setPointSize(f.pointSize() + 2)
+        f.setPointSize(f.pointSize() + 1)
         header.setFont(f)
         header.setStyleSheet("letter-spacing:2px;")
         v.addWidget(header)
 
         sub = QLabel(
-            "Detects physical defects (anatomy, hands, faces, objects, "
-            "logos, AI artifacts) using a vision model. The Technical "
-            "Quality tab still handles blur / noise / exposure locally."
+            "Vision-model defect check · anatomy, hands, AI artifacts."
         )
         sub.setWordWrap(True)
         sub.setStyleSheet("color:#555555; font-size:11px;")
-        sp = sub.sizePolicy()
-        sp.setHeightForWidth(True)
-        sub.setSizePolicy(sp)
         v.addWidget(sub)
 
-        # Source toolbar (mirrors the Technical Quality tab) ----------
-        v.addWidget(_section_label("SOURCE"))
-        src_row = QHBoxLayout()
-        src_row.setSpacing(6)
-        self.btn_add_folder = QPushButton("+ FOLDER")
-        self.btn_add_folder.clicked.connect(self.add_folder_requested.emit)
-        src_row.addWidget(self.btn_add_folder)
-        self.btn_add_files = QPushButton("+ FILES")
-        self.btn_add_files.clicked.connect(self.add_files_requested.emit)
-        src_row.addWidget(self.btn_add_files)
-        v.addLayout(src_row)
-
-        clr_row = QHBoxLayout()
-        self.btn_clear_sources = QPushButton("CLEAR SOURCES")
-        self.btn_clear_sources.clicked.connect(
-            self.clear_sources_requested.emit
-        )
-        clr_row.addWidget(self.btn_clear_sources)
-        clr_row.addStretch(1)
-        v.addLayout(clr_row)
-
+        # The "Add Folder / Add Files / Clear Sources" buttons used to
+        # be mirrored here — they have been moved to the always-visible
+        # top command bar so the AI panel is no longer cluttered with
+        # duplicates. We still surface a tiny status line so the user
+        # knows whether the queue is empty.
         self.lbl_source_count = QLabel("— no sources added —")
-        self.lbl_source_count.setStyleSheet("color:#777777; font-size:11px;")
+        self.lbl_source_count.setStyleSheet(
+            "color:#777777; font-size:11px;"
+        )
         self.lbl_source_count.setWordWrap(True)
         v.addWidget(self.lbl_source_count)
 
@@ -152,6 +143,7 @@ class AIPanel(QWidget):
         for depth in (ScanDepth.FAST, ScanDepth.DETAILED, ScanDepth.ULTRA):
             rb = QRadioButton(_DEPTH_LABEL[depth])
             rb.setStyleSheet("padding:2px 0;")
+            rb.setToolTip(_DEPTH_HELP[depth])
             self.rb_depth[depth] = rb
             depth_group.addButton(rb)
             v.addWidget(rb)
@@ -160,9 +152,6 @@ class AIPanel(QWidget):
         v.addWidget(_section_label("API KEYS"))
         self.lbl_keys = QLabel()
         self.lbl_keys.setWordWrap(True)
-        sp = self.lbl_keys.sizePolicy()
-        sp.setHeightForWidth(True)
-        self.lbl_keys.setSizePolicy(sp)
         v.addWidget(self.lbl_keys)
         self.btn_keys = QPushButton("MANAGE API KEYS")
         self.btn_keys.clicked.connect(self._on_manage_keys)
@@ -174,7 +163,7 @@ class AIPanel(QWidget):
         self.sp_workers = QSpinBox()
         self.sp_workers.setRange(1, 32)
         self.sp_workers.setValue(1)
-        self.sp_workers.setMinimumWidth(70)
+        self.sp_workers.setMinimumWidth(60)
         wk_row.addWidget(self.sp_workers)
         self.btn_auto_workers = QPushButton("AUTO")
         self.btn_auto_workers.setToolTip(
@@ -184,20 +173,10 @@ class AIPanel(QWidget):
         wk_row.addWidget(self.btn_auto_workers)
         wk_row.addStretch(1)
         v.addLayout(wk_row)
-        self.lbl_workers_hint = QLabel(
-            "1 = sequential. Higher = run multiple inspections in parallel "
-            "across keys. AUTO uses every usable key."
-        )
-        self.lbl_workers_hint.setWordWrap(True)
-        self.lbl_workers_hint.setStyleSheet("color:#777777; font-size:11px;")
-        sp = self.lbl_workers_hint.sizePolicy()
-        sp.setHeightForWidth(True)
-        self.lbl_workers_hint.setSizePolicy(sp)
-        v.addWidget(self.lbl_workers_hint)
 
         v.addWidget(_section_label("RUN"))
 
-        self.btn_run = QPushButton("▶  RUN AI ANATOMY CHECK")
+        self.btn_run = QPushButton("\u25B6  RUN AI ANATOMY CHECK")
         self.btn_run.setMinimumHeight(44)
         self.btn_run.setStyleSheet(
             "QPushButton{background:#FF4D2E; color:#111111;"
@@ -207,6 +186,20 @@ class AIPanel(QWidget):
         )
         self.btn_run.clicked.connect(self._on_run)
         v.addWidget(self.btn_run)
+
+        # Inline reason that explains *why* RUN is disabled. We keep
+        # a separate label (not just a tooltip) so the message is
+        # always visible without requiring hover.
+        self.lbl_run_reason = QLabel("")
+        self.lbl_run_reason.setObjectName("run-reason")
+        self.lbl_run_reason.setWordWrap(True)
+        self.lbl_run_reason.setStyleSheet(
+            "color:#B23A1F; font-size:11px; font-weight:700;"
+            "padding:4px 6px; border:2px solid #B23A1F;"
+            "background:#FFE2D9;"
+        )
+        self.lbl_run_reason.hide()
+        v.addWidget(self.lbl_run_reason)
 
         self.btn_stop = QPushButton("STOP")
         self.btn_stop.clicked.connect(self._on_stop)
@@ -243,6 +236,16 @@ class AIPanel(QWidget):
         head.addWidget(self.btn_review)
         v.addLayout(head)
 
+        # Stack the queue list and an empty-state placeholder in the
+        # same slot — toggled by ``_refresh_queue``. The placeholder
+        # gives users a clear next step when no images are loaded.
+        from PySide6.QtWidgets import QStackedLayout
+
+        host = QFrame()
+        host.setStyleSheet("background:transparent;")
+        stack = QStackedLayout(host)
+        stack.setStackingMode(QStackedLayout.StackingMode.StackOne)
+
         self.lst_queue = QListWidget()
         self.lst_queue.setStyleSheet(
             "QListWidget{border:2px solid #111111; background:#FFFFFF;}"
@@ -253,7 +256,19 @@ class AIPanel(QWidget):
         self.lst_queue.itemDoubleClicked.connect(
             lambda _i: self._on_open_review()
         )
-        v.addWidget(self.lst_queue, 1)
+        stack.addWidget(self.lst_queue)
+
+        self._queue_empty = EmptyState(
+            title="QUEUE EMPTY",
+            body=(
+                "Use Add Folder or Add Files in the top bar to queue up "
+                "images for the AI anatomy check."
+            ),
+        )
+        stack.addWidget(self._queue_empty)
+        self._queue_stack = stack
+
+        v.addWidget(host, 1)
         return w
 
     def _build_right_preview(self) -> QWidget:
@@ -298,9 +313,12 @@ class AIPanel(QWidget):
         self._refresh_queue()
         n = len(self._files)
         if n == 0:
-            self.lbl_source_count.setText("— no sources added —")
+            self.lbl_source_count.setText(
+                "— no images yet · add via the top bar —"
+            )
         else:
-            self.lbl_source_count.setText(f"{n} file(s) loaded")
+            self.lbl_source_count.setText(f"{n} image(s) ready")
+        self._update_run_state()
 
     def results(self) -> Dict[str, AnatomyResult]:
         """All AI results so far, keyed by file name."""
@@ -319,6 +337,8 @@ class AIPanel(QWidget):
             item.setSizeHint(item.sizeHint())
             self.lst_queue.addItem(item)
         self.btn_review.setEnabled(bool(self._files))
+        # Toggle the empty-state placeholder.
+        self._queue_stack.setCurrentIndex(0 if self._files else 1)
 
     def _row_for_file(self, file_name: str) -> int:
         for i in range(self.lst_queue.count()):
@@ -362,14 +382,48 @@ class AIPanel(QWidget):
         if total == 0:
             self.lbl_keys.setText(
                 "<b>No keys configured.</b> Add a Gemini, OpenAI, or Groq "
-                "API key in Manage API Keys before running."
+                "key in Manage API Keys."
             )
-            self.btn_run.setEnabled(False)
         else:
             self.lbl_keys.setText(
                 f"{len(usable)} usable · {total} total"
             )
-            self.btn_run.setEnabled(True)
+        self._update_run_state()
+
+    def _update_run_state(self) -> None:
+        """Drive the Run button's enabled state + show *why* it is off.
+
+        The button is disabled until both preconditions are met:
+        images in the queue **and** at least one usable API key. The
+        inline ``lbl_run_reason`` label below the button explains the
+        first missing precondition in plain English so the user does
+        not have to guess.
+        """
+        # If a worker is mid-flight the parent already manages enablement.
+        if self._worker is not None:
+            return
+
+        reasons = []
+        if not self._files:
+            reasons.append(
+                "Add images via the top bar (Add Folder / Add Files)."
+            )
+        if not self.km.usable_keys():
+            reasons.append(
+                "Add at least one API key (Manage API Keys)."
+            )
+
+        can_run = not reasons
+        self.btn_run.setEnabled(can_run)
+        if can_run:
+            self.btn_run.setToolTip("Run AI Anatomy Inspector on the queue")
+            self.lbl_run_reason.hide()
+            self.lbl_run_reason.setText("")
+        else:
+            joined = "\n".join(f"• {r}" for r in reasons)
+            self.btn_run.setToolTip(joined)
+            self.lbl_run_reason.setText(joined)
+            self.lbl_run_reason.show()
 
     def _selected_depth(self) -> ScanDepth:
         for d, rb in self.rb_depth.items():
@@ -468,10 +522,12 @@ class AIPanel(QWidget):
         self.progress.setValue(self.progress.value() + 1)
 
     def _on_finished(self) -> None:
-        self.btn_run.setEnabled(True)
         self.btn_stop.setEnabled(False)
         self.lbl_progress.setText("Complete.")
         self._worker = None
+        # Re-evaluate Run state — `_refresh_keys_label` calls
+        # `_update_run_state` which restores both the enabled flag and
+        # the inline reason if any precondition is now missing.
         self._refresh_keys_label()
 
     def _on_open_review(self) -> None:

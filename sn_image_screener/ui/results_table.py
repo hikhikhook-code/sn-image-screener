@@ -9,11 +9,11 @@ from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPalette, QPen, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView, QFrame, QHBoxLayout, QHeaderView, QLabel, QSizePolicy,
-    QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QStackedLayout, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from . import theme
-from .widgets import StatusTag
+from .widgets import EmptyState, StatusTag
 from ..core.classifier import Status
 from ..core.scanner import ScanItem
 
@@ -113,6 +113,14 @@ class ResultsTable(QFrame):
         outer.setContentsMargins(2, 2, 2, 2)
         outer.setSpacing(0)
 
+        # The table and the empty-state placeholder share one slot via
+        # a stacked layout. ``_refresh_empty_state`` flips between them
+        # based on row count.
+        host = QFrame()
+        host.setStyleSheet("background:transparent;")
+        self._stack = QStackedLayout(host)
+        self._stack.setStackingMode(QStackedLayout.StackingMode.StackOne)
+
         self.table = QTableWidget()
         self.table.setColumnCount(len(COLUMNS))
         self.table.setHorizontalHeaderLabels([c[0] for c in COLUMNS])
@@ -133,17 +141,29 @@ class ResultsTable(QFrame):
         self.table.setShowGrid(False)
         self.table.setIconSize(QSize(56, 56))
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
+        self._stack.addWidget(self.table)
 
-        outer.addWidget(self.table)
+        self._empty = EmptyState(
+            title="NO RESULTS YET",
+            body=(
+                "Add a folder or files in the top bar, pick a preset, "
+                "then click Start Scan to populate this table."
+            ),
+        )
+        self._stack.addWidget(self._empty)
+
+        outer.addWidget(host)
 
         # row index -> ScanItem
         self._items: Dict[int, ScanItem] = {}
+        self._refresh_empty_state()
 
     # ----------------------------------------------------------------- API
 
     def clear(self) -> None:
         self.table.setRowCount(0)
         self._items.clear()
+        self._refresh_empty_state()
 
     def add_or_update(self, item: ScanItem) -> None:
         """Append a row for the new item. (No update path needed yet — each
@@ -151,6 +171,7 @@ class ResultsTable(QFrame):
         row = self.table.rowCount()
         self.table.insertRow(row)
         self._items[row] = item
+        self._refresh_empty_state()
 
         # Thumbnail ----------------------------------------------------
         thumb_lbl = QLabel()
@@ -225,7 +246,11 @@ class ResultsTable(QFrame):
             new_items[new_row] = self._items[r]
             new_row += 1
         self._items = new_items
+        self._refresh_empty_state()
         return len(rows_to_remove)
+
+    def _refresh_empty_state(self) -> None:
+        self._stack.setCurrentIndex(0 if self.table.rowCount() else 1)
 
     def selected_item(self) -> Optional[ScanItem]:
         rows = {idx.row() for idx in self.table.selectedIndexes()}

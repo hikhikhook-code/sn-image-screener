@@ -103,6 +103,62 @@ class HardDivider(QFrame):
         self.setFixedHeight(2)
 
 
+# --- Empty-state placeholder -----------------------------------------------
+
+
+class EmptyState(QFrame):
+    """Brutalist placeholder shown when a list / preview / panel is empty.
+
+    Renders a hard-bordered card with an uppercase title and a wrapped
+    body sentence describing what the user should do next. Used by the
+    results table, inspector preview, and AI queue.
+    """
+
+    def __init__(
+        self,
+        title: str,
+        body: str,
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("empty-state")
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(28, 24, 28, 24)
+        layout.setSpacing(8)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self._title = QLabel(title.upper())
+        self._title.setObjectName("empty-state-title")
+        self._title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        tf = self._title.font()
+        tf.setBold(True)
+        tf.setPointSize(max(tf.pointSize() + 1, 12))
+        tf.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 2)
+        self._title.setFont(tf)
+        layout.addWidget(self._title)
+
+        self._body = QLabel(body)
+        self._body.setObjectName("empty-state-body")
+        self._body.setWordWrap(True)
+        self._body.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        bf = self._body.font()
+        bf.setPointSize(max(bf.pointSize(), 10))
+        self._body.setFont(bf)
+        layout.addWidget(self._body)
+
+        self.setStyleSheet(
+            f"QFrame#empty-state{{background:{theme.SURFACE_ALT};"
+            f"border:2px dashed {theme.INK};}}"
+            f"QLabel#empty-state-title{{color:{theme.INK};}}"
+            f"QLabel#empty-state-body{{color:{theme.INK_SOFT};}}"
+        )
+
+    def set_text(self, title: str, body: str) -> None:
+        self._title.setText(title.upper())
+        self._body.setText(body)
+
+
 # --- Collapsible group ------------------------------------------------------
 
 
