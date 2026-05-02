@@ -14,6 +14,7 @@ QThread so the desktop app stays responsive.
 """
 
 from .key_manager import KeyManager, MAX_KEYS, default_keys_path, user_data_dir
+from .parallel_runner import ParallelAnatomyRunner
 from .run_anatomy_check import (
     AnatomyRunner, EVT_COMPLETE, EVT_ERROR, EVT_FULL, EVT_KEY_SWITCH,
     EVT_MERGE, EVT_PREPARE, EVT_TILE,
@@ -26,7 +27,7 @@ from .types import (
 
 __all__ = [
     "KeyManager", "MAX_KEYS", "default_keys_path", "user_data_dir",
-    "AnatomyRunner",
+    "AnatomyRunner", "ParallelAnatomyRunner",
     "EVT_PREPARE", "EVT_FULL", "EVT_TILE", "EVT_MERGE", "EVT_COMPLETE",
     "EVT_KEY_SWITCH", "EVT_ERROR",
     "AIStatus", "AnatomyResult", "Confidence", "DefectCategory",

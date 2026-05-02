@@ -24,7 +24,7 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
     QMessageBox, QProgressBar, QPushButton, QRadioButton, QSizePolicy,
-    QSplitter, QVBoxLayout, QWidget,
+    QSpinBox, QSplitter, QVBoxLayout, QWidget,
 )
 
 from ...services.ai import KeyManager
@@ -124,6 +124,30 @@ class AIPanel(QWidget):
         self.btn_keys = QPushButton("MANAGE API KEYS")
         self.btn_keys.clicked.connect(self._on_manage_keys)
         v.addWidget(self.btn_keys)
+
+        v.addWidget(_section_label("PARALLEL WORKERS"))
+        wk_row = QHBoxLayout()
+        wk_row.setSpacing(6)
+        self.sp_workers = QSpinBox()
+        self.sp_workers.setRange(1, 32)
+        self.sp_workers.setValue(1)
+        self.sp_workers.setMinimumWidth(70)
+        wk_row.addWidget(self.sp_workers)
+        self.btn_auto_workers = QPushButton("AUTO")
+        self.btn_auto_workers.setToolTip(
+            "Set workers = number of usable API keys (capped at 16)."
+        )
+        self.btn_auto_workers.clicked.connect(self._on_auto_workers)
+        wk_row.addWidget(self.btn_auto_workers)
+        wk_row.addStretch(1)
+        v.addLayout(wk_row)
+        self.lbl_workers_hint = QLabel(
+            "1 = sequential. Higher = run multiple inspections in parallel "
+            "across keys. AUTO uses every usable key."
+        )
+        self.lbl_workers_hint.setWordWrap(True)
+        self.lbl_workers_hint.setStyleSheet("color:#777777; font-size:11px;")
+        v.addWidget(self.lbl_workers_hint)
 
         v.addWidget(_section_label("RUN"))
 
@@ -295,6 +319,10 @@ class AIPanel(QWidget):
         # acceptance — refresh the button state.
         self._refresh_keys_label()
 
+    def _on_auto_workers(self) -> None:
+        usable = max(1, len(self.km.usable_keys()))
+        self.sp_workers.setValue(min(usable, 16))
+
     def _on_run(self) -> None:
         if self._worker is not None:
             return
@@ -318,7 +346,10 @@ class AIPanel(QWidget):
         self.btn_run.setEnabled(False)
         self.btn_stop.setEnabled(True)
 
-        self._worker = InspectionWorker(self.km, list(self._files), depth)
+        self._worker = InspectionWorker(
+            self.km, list(self._files), depth,
+            max_workers=self.sp_workers.value(),
+        )
         self._worker.image_started.connect(self._on_image_started)
         self._worker.image_progress.connect(self._on_image_progress)
         self._worker.image_done.connect(self._on_image_done)

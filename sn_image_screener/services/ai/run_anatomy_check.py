@@ -181,6 +181,11 @@ class AnatomyRunner:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    # Largest cooldown window we are willing to wait for inside a single
+    # inspection. Anything longer than this and we surface the error to
+    # the caller instead of blocking the worker thread.
+    MAX_COOLDOWN_WAIT_S = 10.0
+
     def _inspect_with_failover(
         self,
         image: ImageInput,
@@ -196,6 +201,16 @@ class AnatomyRunner:
         while switches_remaining > 0:
             key = self.keys.next_available()
             if key is None:
+                # All keys are currently cooling down. If at least one
+                # is going to recover soon, wait briefly and try again
+                # — that lets the parallel runner with one key recover
+                # instead of erroring out the moment a 429 hits.
+                expiry = self.keys.soonest_cooldown_expiry()
+                if expiry is not None:
+                    wait_s = expiry - time.time()
+                    if 0 < wait_s <= self.MAX_COOLDOWN_WAIT_S:
+                        time.sleep(wait_s)
+                        continue
                 return _FailoverResult(
                     inspection=_OneInspection(
                         parsed=None, provider="", key_label="",

@@ -26,15 +26,40 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import threading
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from .types import KeyEntry, KeyStatus, ProviderName, now_ts
 
 
 MAX_KEYS = 20
+
+# How long to silence a rate-limited / failed key during the current
+# run before retrying it. Provider error messages sometimes carry an
+# explicit "Please try again in X.Xs" hint which we honour when
+# present (see _parse_retry_after_seconds).
+DEFAULT_RATE_LIMIT_COOLDOWN_S = 30.0
+DEFAULT_FAILURE_COOLDOWN_S = 300.0  # invalid/key/quota errors
+
+_RETRY_AFTER_RE = re.compile(
+    r"try again in\s+([0-9]+(?:\.[0-9]+)?)\s*s", re.IGNORECASE,
+)
+
+
+def _parse_retry_after_seconds(message: str) -> Optional[float]:
+    """Pull a 'try again in N.Ns' duration out of a provider error."""
+    if not message:
+        return None
+    m = _RETRY_AFTER_RE.search(message)
+    if not m:
+        return None
+    try:
+        return float(m.group(1))
+    except ValueError:
+        return None
 
 
 def user_data_dir(app_name: str = "sn_image_screener") -> Path:
@@ -59,10 +84,10 @@ class KeyManager:
         self.path = Path(path) if path else default_keys_path()
         self._lock = threading.RLock()
         self._keys: List[KeyEntry] = []
-        # Indexes (into self._keys) of keys we should skip for the rest
-        # of the current scan run (rate-limited / failed). Cleared by
-        # `reset_run_state()` at the start of each run.
-        self._cooldown: set[int] = set()
+        # Map from key index to the unix timestamp at which the key's
+        # cooldown lifts. Anything <= now_ts() is usable again. Cleared
+        # by `reset_run_state()` at the start of each run.
+        self._cooldown: Dict[int, float] = {}
         self.load()
 
     # ------------------------------------------------------------------
@@ -141,11 +166,20 @@ class KeyManager:
                     self._keys[i].status = status
                     self._keys[i].last_error = error
                     self._keys[i].last_used_at = now_ts()
-                    if status in (KeyStatus.FAILED, KeyStatus.RATE_LIMITED,
-                                  KeyStatus.EXHAUSTED):
-                        self._cooldown.add(i)
+                    if status == KeyStatus.RATE_LIMITED:
+                        # Honour provider-supplied retry-after when present;
+                        # else fall back to the default rate-limit window.
+                        retry = _parse_retry_after_seconds(error or "")
+                        wait = retry if retry is not None \
+                            else DEFAULT_RATE_LIMIT_COOLDOWN_S
+                        # Add a small safety margin so two near-simultaneous
+                        # retries don't both slam the API the instant the
+                        # window opens.
+                        self._cooldown[i] = now_ts() + wait + 0.5
+                    elif status in (KeyStatus.FAILED, KeyStatus.EXHAUSTED):
+                        self._cooldown[i] = now_ts() + DEFAULT_FAILURE_COOLDOWN_S
                     elif status == KeyStatus.ACTIVE:
-                        self._cooldown.discard(i)
+                        self._cooldown.pop(i, None)
                     break
 
     def reorder(self, ordering: List[int]) -> None:
@@ -167,13 +201,25 @@ class KeyManager:
         with self._lock:
             self._cooldown.clear()
 
+    def _is_in_cooldown(self, index: int, now: float) -> bool:
+        """True iff the key at `index` is still cooling down at `now`."""
+        until = self._cooldown.get(index)
+        if until is None:
+            return False
+        if until <= now:
+            # Cooldown expired — remove it eagerly so we stop re-checking.
+            self._cooldown.pop(index, None)
+            return False
+        return True
+
     def next_available(
         self, provider: Optional[ProviderName] = None,
     ) -> Optional[KeyEntry]:
         """Return the next enabled, non-cooldown key (lowest priority)."""
         with self._lock:
+            now = now_ts()
             for i, k in enumerate(self._keys):
-                if i in self._cooldown:
+                if self._is_in_cooldown(i, now):
                     continue
                 if not k.enabled:
                     continue
@@ -185,7 +231,19 @@ class KeyManager:
     def usable_keys(self) -> List[KeyEntry]:
         """All currently usable keys — enabled and not in cooldown."""
         with self._lock:
+            now = now_ts()
             return [
                 k for i, k in enumerate(self._keys)
-                if k.enabled and i not in self._cooldown
+                if k.enabled and not self._is_in_cooldown(i, now)
             ]
+
+    def soonest_cooldown_expiry(self) -> Optional[float]:
+        """Return the earliest cooldown-expiry timestamp, or None.
+
+        Useful for callers that want to wait for *any* key to come back
+        online instead of giving up immediately.
+        """
+        with self._lock:
+            if not self._cooldown:
+                return None
+            return min(self._cooldown.values())
