@@ -36,7 +36,6 @@ from .inspection_worker import InspectionWorker
 from .key_settings_dialog import KeySettingsDialog
 from .marker_view import MarkerView
 from .report_panel import ReportPanel
-from .review_dialog import AIReviewDialog
 
 
 _DEPTH_LABEL = {
@@ -49,6 +48,17 @@ _DEPTH_HELP = {
     ScanDepth.FAST: "Whole image only — fastest, less precise.",
     ScanDepth.DETAILED: "3 × 3 tiles + whole image — recommended.",
     ScanDepth.ULTRA: "4 × 4 tiles + whole image — most thorough.",
+}
+
+# Maps ``AIStatus`` enum members onto the uppercase strings the Full
+# Review dialog uses for its toolbar status badge. ``AIStatus.FAIL`` is
+# rendered as ``FAIL`` (the user-facing FAIL/REJECT split lives in the
+# report card itself, e.g. recommendation = REJECT).
+_AI_BADGE = {
+    AIStatus.PASS:   "PASS",
+    AIStatus.REVIEW: "REVIEW",
+    AIStatus.FAIL:   "FAIL",
+    AIStatus.ERROR:  "ERROR",
 }
 
 
@@ -561,29 +571,63 @@ class AIPanel(QWidget):
         self._refresh_keys_label()
 
     def _on_open_review(self) -> None:
+        # Imported lazily to break the circular dependency between
+        # ``ui.ai.ai_panel`` and ``ui.full_review`` (which itself imports
+        # ``ui.ai.marker_view``).
+        from ..full_review import FullReviewDialog, FullReviewItem
+
         if not self._files:
             return
-        items = []
+        items: List[FullReviewItem] = []
         for p in self._files:
             res = self._results.get(p.name)
-            if res is not None:
-                items.append((p, res))
+            if res is None:
+                continue
+            items.append(
+                FullReviewItem(
+                    path=p,
+                    status=_AI_BADGE.get(res.status, "ERROR"),
+                    regions=list(res.defect_regions),
+                    payload=res,
+                )
+            )
         if not items:
             QMessageBox.information(
                 self, "No AI results yet",
                 "Run the AI anatomy check first, then open the full review.",
             )
             return
+
         # Start at the currently-selected row if it has a result.
         start = 0
         sel = self.lst_queue.selectedItems()
         if sel:
             sel_name = Path(sel[0].data(Qt.ItemDataRole.UserRole)).name
-            for i, (p, _) in enumerate(items):
-                if p.name == sel_name:
+            for i, it in enumerate(items):
+                if it.path.name == sel_name:
                     start = i
                     break
-        dlg = AIReviewDialog(items, start_index=start, parent=self)
+
+        report = ReportPanel()
+
+        def _update_report(item: Optional[FullReviewItem]) -> None:
+            report.set_result(
+                item.payload if item is not None else None  # type: ignore[arg-type]
+            )
+
+        dlg = FullReviewDialog(
+            items,
+            report_widget=report,
+            on_item_changed=_update_report,
+            start_index=start,
+            title="AI Anatomy — Full Review",
+            parent=self,
+        )
+        # Two-way wiring with the report's defect list so clicking a
+        # row in the report highlights the corresponding marker, and
+        # clicking a marker selects the row.
+        dlg.marker.region_clicked.connect(report.highlight)
+        report.region_clicked.connect(dlg.marker.set_highlight)
         dlg.exec()
 
 
