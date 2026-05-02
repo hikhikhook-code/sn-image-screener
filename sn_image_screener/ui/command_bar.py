@@ -56,6 +56,7 @@ class CommandBar(QFrame):
     start_clicked = Signal()
     stop_clicked = Signal()
     export_clicked = Signal()
+    delete_clicked = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -111,6 +112,13 @@ class CommandBar(QFrame):
         self.btn_export.clicked.connect(self.export_clicked.emit)
         layout.addWidget(self.btn_export)
 
+        self.btn_delete = QPushButton("\U0001F5D1  Delete")
+        self.btn_delete.setObjectName("brutal-danger")
+        self.btn_delete.setEnabled(False)
+        self.btn_delete.setToolTip("Run a scan first")
+        self.btn_delete.clicked.connect(self.delete_clicked.emit)
+        layout.addWidget(self.btn_delete)
+
         # Status -----------------------------------------------------------
         self.status = StatusIndicator()
         layout.addWidget(self.status)
@@ -130,3 +138,13 @@ class CommandBar(QFrame):
         self.btn_start.setToolTip(
             "" if can_start else "Add a folder or files first"
         )
+
+    def set_can_delete(self, can_delete: bool, count: int = 0) -> None:
+        """Enable the delete button when at least one REJECT is in the table."""
+        self.btn_delete.setEnabled(can_delete)
+        if can_delete:
+            self.btn_delete.setToolTip(
+                f"Move {count} rejected file(s) to Recycle Bin"
+            )
+        else:
+            self.btn_delete.setToolTip("Run a scan first")

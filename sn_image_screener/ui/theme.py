@@ -94,6 +94,14 @@ QLabel#scroll-hint {{
     background: transparent;
 }}
 
+QLabel#field-hint {{
+    color: {INK_MUTED};
+    font-size: 10px;
+    font-weight: 500;
+    background: transparent;
+    margin-left: 2px;
+}}
+
 QLabel#brand-title {{
     font-size: 22px;
     font-weight: 900;
@@ -191,6 +199,20 @@ QPushButton#brutal-secondary:hover {{
     color: {LIME};
 }}
 QPushButton#brutal-secondary:disabled {{
+    background: {SURFACE_ALT};
+    color: {INK_MUTED};
+    border-color: {INK_MUTED};
+}}
+
+QPushButton#brutal-danger {{
+    background: {REJECT_BG};
+    color: #FFFFFF;
+}}
+QPushButton#brutal-danger:hover {{
+    background: {INK};
+    color: {REJECT_BG};
+}}
+QPushButton#brutal-danger:disabled {{
     background: {SURFACE_ALT};
     color: {INK_MUTED};
     border-color: {INK_MUTED};

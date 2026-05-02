@@ -11,16 +11,18 @@ from typing import List, Optional
 from PySide6.QtCore import Qt, QThread
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QMainWindow,
-    QMessageBox, QProgressBar, QSizePolicy, QSplitter, QStatusBar,
-    QVBoxLayout, QWidget,
+    QApplication, QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel,
+    QMainWindow, QMessageBox, QProgressBar, QSizePolicy, QSplitter,
+    QStatusBar, QVBoxLayout, QWidget,
 )
 
 from .. import __app_name__, __subtitle__, __version__
 from ..core.classifier import Status
+from ..core.deleter import human_size, total_size, trash_files
 from ..core.exporter import copy_by_status, export_csv, export_json
 from ..core.scanner import collect_paths
 from . import theme
+from .delete_dialog import DeleteConfirmDialog
 from .command_bar import CommandBar
 from .control_panel import ControlPanel
 from .inspector import Inspector
@@ -63,6 +65,7 @@ class MainWindow(QMainWindow):
         self.command_bar.start_clicked.connect(self.start_scan)
         self.command_bar.stop_clicked.connect(self.stop_scan)
         self.command_bar.export_clicked.connect(self.export_results)
+        self.command_bar.delete_clicked.connect(self.delete_rejected)
         layout.addWidget(self.command_bar)
 
         # Body splitter --------------------------------------------------
@@ -313,6 +316,7 @@ class MainWindow(QMainWindow):
             self._counts[st] += 1
         total = sum(self._counts.values())
         self._update_counters(total)
+        self._refresh_delete_button()
 
         if item.error:
             self.log_panel.err(f"{item.path.name} · {item.error}")
@@ -351,6 +355,13 @@ class MainWindow(QMainWindow):
                 f"PASS {self._counts['PASS']}  ·  REVIEW {self._counts['REVIEW']}  ·  REJECT {self._counts['REJECT']}",
             )
         self.command_bar.set_scanning(False)
+        self._refresh_delete_button()
+
+    def _refresh_delete_button(self) -> None:
+        """Enable the Delete button only when at least one REJECT row exists."""
+        items = self.results.items()
+        n_reject = sum(1 for it in items if it.status == Status.REJECT)
+        self.command_bar.set_can_delete(n_reject > 0, n_reject)
 
     def _cleanup_worker(self) -> None:
         if self._worker is not None:
@@ -421,6 +432,77 @@ class MainWindow(QMainWindow):
             self.log_panel.err(f"Export failed · {exc}")
             self.toaster.err("Export failed", str(exc))
             return
+
+    # =====================================================================
+    # Delete
+    # =====================================================================
+
+    def delete_rejected(self) -> None:
+        """Show confirm dialog and trash REJECT (and optionally REVIEW) files."""
+        items = self.results.items()
+        rej = [it for it in items if it.status == Status.REJECT]
+        rev = [it for it in items if it.status == Status.REVIEW]
+        if not rej and not rev:
+            self.toaster.warn("Nothing to delete", "Run a scan first")
+            return
+
+        dlg = DeleteConfirmDialog(
+            self,
+            n_reject=len(rej),
+            size_reject=total_size(it.path for it in rej),
+            n_review=len(rev),
+            size_review=total_size(it.path for it in rev),
+            permanent_default=self.control_panel.chk_permanent_delete.isChecked(),
+        )
+        if dlg.exec() != QDialog.Accepted:
+            return
+
+        targets: List[Path] = []
+        if dlg.include_reject:
+            targets += [it.path for it in rej]
+        if dlg.include_review:
+            targets += [it.path for it in rev]
+        if not targets:
+            return
+
+        permanent = dlg.permanent
+        # Snapshot sizes before deletion so we can show a useful toast.
+        size_before = total_size(targets)
+        deleted, errors = trash_files(targets, permanent=permanent)
+
+        if deleted:
+            self.results.remove_paths(deleted)
+            for it in items:
+                if it.path in deleted:
+                    if it.status == Status.REJECT:
+                        self._counts["REJECT"] = max(0, self._counts["REJECT"] - 1)
+                    elif it.status == Status.REVIEW:
+                        self._counts["REVIEW"] = max(0, self._counts["REVIEW"] - 1)
+            self._update_counters(sum(self._counts.values()))
+
+        action = "Permanently deleted" if permanent else "Moved to Recycle Bin"
+        if deleted and not errors:
+            self.toaster.ok(
+                f"{action}",
+                f"{len(deleted)} file(s) · {human_size(size_before)}",
+            )
+            self.log_panel.ok(f"{action} · {len(deleted)} file(s)")
+        elif deleted and errors:
+            self.toaster.warn(
+                f"{action} (partial)",
+                f"{len(deleted)} ok, {len(errors)} error(s)",
+            )
+            for p, msg in errors:
+                self.log_panel.err(f"Delete failed: {p.name} · {msg}")
+        else:
+            self.toaster.err(
+                "Delete failed",
+                f"{len(errors)} error(s) — see activity log",
+            )
+            for p, msg in errors:
+                self.log_panel.err(f"Delete failed: {p.name} · {msg}")
+
+        self._refresh_delete_button()
 
     # =====================================================================
     # Lifecycle

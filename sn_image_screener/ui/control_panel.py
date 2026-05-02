@@ -40,6 +40,14 @@ def _dspinbox(value: float, lo: float = 0.0, hi: float = 99999.0, step: float = 
     return s
 
 
+def _hint(text: str) -> QLabel:
+    """Small grey hint label placed beneath a field."""
+    lab = QLabel(text)
+    lab.setObjectName("field-hint")
+    lab.setWordWrap(True)
+    return lab
+
+
 class ControlPanel(QFrame):
     """Left side panel — scrollable settings on top, sticky START SCAN at the bottom."""
 
@@ -198,27 +206,86 @@ class ControlPanel(QFrame):
         self.sp_exp_min = _dspinbox(35,  0, 255, 5, decimals=1)
         self.sp_exp_max = _dspinbox(225, 0, 255, 5, decimals=1)
 
-        adv_form = QFormLayout()
-        adv_form.setSpacing(6)
-        adv_form.setLabelAlignment(Qt.AlignLeft)
-        adv_form.addRow("Min file size (KB)", self.sp_min_kb)
-        adv_form.addRow("Min width (px)",     self.sp_min_w)
-        adv_form.addRow("Min height (px)",    self.sp_min_h)
-        adv_form.addRow("Blur reject below",  self.sp_blur_reject)
-        adv_form.addRow("Blur review below",  self.sp_blur_review)
-        adv_form.addRow("Noise reject above", self.sp_noise_reject)
-        adv_form.addRow("Noise review above", self.sp_noise_review)
-        adv_form.addRow("JPG artifact reject", self.sp_artifact_reject)
-        adv_form.addRow("JPG artifact review", self.sp_artifact_review)
-        adv_form.addRow("Exposure min (mean)", self.sp_exp_min)
-        adv_form.addRow("Exposure max (mean)", self.sp_exp_max)
+        # Each setting is rendered as a 3-row block:
+        #   [name]
+        #   [spinbox]
+        #   [hint text]
+        adv_box = QVBoxLayout()
+        adv_box.setSpacing(8)
+
+        def _add_field(name: str, spin: QWidget, hint: str) -> None:
+            cap = label(name, soft=False, size=11)
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            row.addWidget(cap, 1)
+            row.addWidget(spin, 0)
+            adv_box.addLayout(row)
+            adv_box.addWidget(_hint(hint))
+
+        _add_field(
+            "Min file size (KB)", self.sp_min_kb,
+            "Files smaller than this fail the file-size gate.",
+        )
+        _add_field(
+            "Min width (px)",  self.sp_min_w,
+            "Images narrower than this fail the resolution gate.",
+        )
+        _add_field(
+            "Min height (px)", self.sp_min_h,
+            "Images shorter than this fail the resolution gate.",
+        )
+        _add_field(
+            "Blur reject below",  self.sp_blur_reject,
+            "Variance of Laplacian. <reject = blurry · reject–review = soft · >review = sharp",
+        )
+        _add_field(
+            "Blur review below",  self.sp_blur_review,
+            "Between this value and 'reject' is flagged for review.",
+        )
+        _add_field(
+            "Noise reject above", self.sp_noise_reject,
+            "High-frequency stddev. >reject = very noisy · review–reject = grainy · <review = clean",
+        )
+        _add_field(
+            "Noise review above", self.sp_noise_review,
+            "Above this (but below reject) is flagged for review.",
+        )
+        _add_field(
+            "JPG artifact reject", self.sp_artifact_reject,
+            "8×8 block boundary energy. >reject = heavy compression · <review = clean",
+        )
+        _add_field(
+            "JPG artifact review", self.sp_artifact_review,
+            "Above this (but below reject) is flagged for review.",
+        )
+        _add_field(
+            "Exposure min (mean)", self.sp_exp_min,
+            "Mean below this is too dark. Typical range 30-50.",
+        )
+        _add_field(
+            "Exposure max (mean)", self.sp_exp_max,
+            "Mean above this is too bright. Typical range 220-235.",
+        )
+
         for spin in (self.sp_min_kb, self.sp_min_w, self.sp_min_h,
                      self.sp_blur_reject, self.sp_blur_review,
                      self.sp_noise_reject, self.sp_noise_review,
                      self.sp_artifact_reject, self.sp_artifact_review,
                      self.sp_exp_min, self.sp_exp_max):
             spin.valueChanged.connect(self.rules_changed.emit)
-        self.grp_advanced.add_layout(adv_form)
+
+        # Permanent-delete escape hatch (defaults to OFF — Recycle Bin used).
+        self.chk_permanent_delete = QCheckBox(
+            "Permanent delete (skip Recycle Bin)"
+        )
+        adv_box.addSpacing(8)
+        adv_box.addWidget(self.chk_permanent_delete)
+        adv_box.addWidget(_hint(
+            "Off = files moved to your OS Recycle Bin (recoverable). "
+            "On = files permanently deleted. Use with caution."
+        ))
+
+        self.grp_advanced.add_layout(adv_box)
 
         layout.addStretch(1)
 
