@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from ...services.ai.types import (
     AIStatus, AnatomyResult, ScreeningResult, Severity,
 )
+from ..widgets import EmptyState
 
 
 _SCREENING_LABEL = {
@@ -55,6 +56,24 @@ class ReportPanel(QWidget):
         root.setContentsMargins(14, 14, 14, 14)
         root.setSpacing(10)
 
+        # Empty state — shown until ``set_result`` receives a real
+        # AnatomyResult so the panel doesn't read as "broken with
+        # dashes" before the AI scan has produced anything.
+        self._empty = EmptyState(
+            title="NO REPORT YET",
+            body="Run a scan to see metrics and issues for the selected image.",
+        )
+        root.addWidget(self._empty)
+
+        # All result-rendering widgets live inside ``_body`` so we can
+        # hide them as a single block alongside the empty state.
+        self._body = QFrame()
+        self._body.setStyleSheet("background:transparent;")
+        body = QVBoxLayout(self._body)
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(10)
+        root.addWidget(self._body, 1)
+
         # Status block
         self.lbl_status = QLabel("—")
         self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -63,12 +82,12 @@ class ReportPanel(QWidget):
         f.setPointSize(f.pointSize() + 8)
         self.lbl_status.setFont(f)
         self.lbl_status.setMinimumHeight(56)
-        root.addWidget(self.lbl_status)
+        body.addWidget(self.lbl_status)
 
         # Decision row
         self.lbl_screening = QLabel("—")
         self.lbl_screening.setStyleSheet("color:#555555;")
-        root.addWidget(self.lbl_screening)
+        body.addWidget(self.lbl_screening)
 
         # Score + confidence row
         score_row = QHBoxLayout()
@@ -77,7 +96,7 @@ class ReportPanel(QWidget):
         self.lbl_conf = self._stat_block("CONF")
         for w in (self.lbl_score, self.lbl_risk, self.lbl_conf):
             score_row.addWidget(w, 1)
-        root.addLayout(score_row)
+        body.addLayout(score_row)
 
         # Primary issue / summary
         self.lbl_primary = QLabel("")
@@ -85,12 +104,12 @@ class ReportPanel(QWidget):
         self.lbl_primary.setStyleSheet(
             "background:#FFF4D6; border:2px solid #111111; padding:8px;"
         )
-        root.addWidget(self.lbl_primary)
+        body.addWidget(self.lbl_primary)
 
         self.lbl_summary = QLabel("")
         self.lbl_summary.setWordWrap(True)
         self.lbl_summary.setStyleSheet("color:#555555;")
-        root.addWidget(self.lbl_summary)
+        body.addWidget(self.lbl_summary)
 
         # Recommended action
         self.lbl_action = QLabel("")
@@ -99,12 +118,12 @@ class ReportPanel(QWidget):
             "font-weight:bold; letter-spacing:1px;"
         )
         self.lbl_action.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        root.addWidget(self.lbl_action)
+        body.addWidget(self.lbl_action)
 
         # Suspected defect list
         title = QLabel("SUSPECTED DEFECT AREAS")
         title.setStyleSheet("font-weight:bold; letter-spacing:1px;")
-        root.addWidget(title)
+        body.addWidget(title)
 
         self.lst_defects = QListWidget()
         self.lst_defects.setStyleSheet(
@@ -116,12 +135,16 @@ class ReportPanel(QWidget):
         self.lst_defects.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding,
         )
-        root.addWidget(self.lst_defects, 1)
+        body.addWidget(self.lst_defects, 1)
 
         # Provider footer
         self.lbl_provider = QLabel("")
         self.lbl_provider.setStyleSheet("color:#8A8377; font-size:11px;")
-        root.addWidget(self.lbl_provider)
+        body.addWidget(self.lbl_provider)
+
+        # Default: empty state visible, body hidden until a result
+        # arrives via ``set_result``.
+        self._body.setVisible(False)
 
     def _stat_block(self, title: str) -> QFrame:
         f = QFrame()
@@ -151,6 +174,9 @@ class ReportPanel(QWidget):
     def set_result(self, result: Optional[AnatomyResult]) -> None:
         self._result = result
         if result is None:
+            # Reset all the result-bound widgets so a future selection
+            # never inherits stale data, then collapse the body in
+            # favour of the empty-state card.
             self.lbl_status.setText("—")
             self.lbl_status.setStyleSheet("")
             self.lbl_screening.setText("—")
@@ -162,7 +188,12 @@ class ReportPanel(QWidget):
             self.lbl_action.setText("")
             self.lst_defects.clear()
             self.lbl_provider.setText("")
+            self._body.setVisible(False)
+            self._empty.setVisible(True)
             return
+
+        self._empty.setVisible(False)
+        self._body.setVisible(True)
 
         bg, fg = _STATUS_PALETTE[result.status]
         self.lbl_status.setText(result.status.value.upper())

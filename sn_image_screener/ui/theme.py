@@ -94,7 +94,9 @@ QFrame#control-panel-root {{
 }}
 
 QFrame#control-sticky {{
-    background: {LIME};
+    /* Cream sticky strip so the lime primary START SCAN button (and
+       the compact "no source added" prompt) stand out against it. */
+    background: {SURFACE_ALT};
     border-top: 2px solid {INK};
 }}
 
@@ -189,12 +191,13 @@ QPushButton:disabled {{
 }}
 
 QPushButton#brutal-primary {{
-    background: {ORANGE};
+    /* Lime primary — orange/red are reserved for warnings + reject. */
+    background: {LIME};
     color: {INK};
 }}
 QPushButton#brutal-primary:hover {{
     background: {INK};
-    color: {ORANGE};
+    color: {LIME};
 }}
 QPushButton#brutal-primary:disabled {{
     background: {SURFACE_ALT};
@@ -203,7 +206,11 @@ QPushButton#brutal-primary:disabled {{
 }}
 
 QPushButton#brutal-secondary {{
-    background: {LIME};
+    /* Neutral filled secondary — quiet enough not to compete with the
+       lime primary, but still hard-bordered + bold for the brutalist
+       look. Used for things like "Add Folder" / "Add Files" mini
+       buttons in empty states. */
+    background: {SURFACE};
     color: {INK};
 }}
 QPushButton#brutal-secondary:hover {{
@@ -315,12 +322,14 @@ QToolButton#rail-button:hover {{
     color: {LIME};
 }}
 QToolButton#rail-button:checked {{
-    background: {ORANGE};
+    /* Active mode uses lime + ink so it does not read as a warning.
+       Orange/red are reserved for reject / error / warning states. */
+    background: {LIME};
     color: {INK};
     border: 2px solid {INK};
 }}
 QToolButton#rail-button:checked:hover {{
-    background: {ORANGE};
+    background: {LIME};
     color: {INK};
 }}
 

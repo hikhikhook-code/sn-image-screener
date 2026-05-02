@@ -80,6 +80,11 @@ class MainWindow(QMainWindow):
         self.control_panel = ControlPanel()
         self.control_panel.clear_sources_clicked.connect(self.clear_sources)
         self.control_panel.start_clicked.connect(self.start_scan)
+        # The compact "No source added" footer surfaces its own mini
+        # Add Folder / Add Files buttons; route them to the same slots
+        # as the top command bar so behaviour is identical.
+        self.control_panel.add_folder_clicked.connect(self.add_folder)
+        self.control_panel.add_files_clicked.connect(self.add_files)
         self.h_split.addWidget(self.control_panel)
 
         # Center: results + bottom log via vertical splitter
@@ -97,6 +102,11 @@ class MainWindow(QMainWindow):
 
         self.results = ResultsTable()
         self.results.selection_changed.connect(self._on_row_selected)
+        # Quick actions inside the empty state of the results table:
+        # 0 = Add Folder, 1 = Add Files (mirrors the top command bar).
+        self.results.empty_action_clicked.connect(
+            lambda i: (self.add_folder if i == 0 else self.add_files)()
+        )
         ctl.addWidget(self.results, 1)
 
         center_split.addWidget(center_top)
@@ -130,14 +140,20 @@ class MainWindow(QMainWindow):
         self.mode_stack.addWidget(self.ai_panel)
 
         # ---- Collapsible left navigation rail -------------------------
+        # Short labels ("TECHNICAL", "AI INSPECTOR") render next to the
+        # icon when the rail is expanded; the long-form name appears as
+        # a tooltip on hover (and is also what users read when the rail
+        # is collapsed).
         self.nav_rail = NavRail()
         self.nav_rail.add_mode(
-            "TECHNICAL QUALITY", technical_quality_icon()
+            "TECHNICAL",
+            technical_quality_icon(),
+            tooltip="Technical Quality",
         )
-        # Short label avoids clipping in the rail; the AI panel itself
-        # still calls itself "AI Anatomy Inspector" in its body header.
         self.nav_rail.add_mode(
-            "AI INSPECTOR", ai_anatomy_icon()
+            "AI INSPECTOR",
+            ai_anatomy_icon(),
+            tooltip="AI Anatomy Inspector",
         )
         self.nav_rail.mode_changed.connect(self._on_mode_changed)
 
@@ -158,6 +174,10 @@ class MainWindow(QMainWindow):
         # Welcome log
         self.log_panel.info(f"{__app_name__} v{__version__} ready")
         self.log_panel.info("Add a folder or files, choose a preset, then Start Scan")
+
+        # Initial empty-state wiring — quiet the Export / Delete buttons
+        # and hide the inspector's metric grid until results exist.
+        self._refresh_delete_button()
 
         # Toast notifications (top-right corner)
         self.toaster = Toaster(self)
@@ -340,6 +360,7 @@ class MainWindow(QMainWindow):
         self._counts = {"PASS": 0, "REVIEW": 0, "REJECT": 0, "ERROR": 0}
         self._update_counters(total=0)
         self.progress.setValue(0)
+        self._refresh_delete_button()
 
         self.command_bar.set_scanning(True)
         self.command_bar.set_status("SCANNING")
@@ -433,6 +454,10 @@ class MainWindow(QMainWindow):
         items = self.results.items()
         n_reject = sum(1 for it in items if it.status == Status.REJECT)
         self.command_bar.set_can_delete(n_reject > 0, n_reject)
+        self.command_bar.set_can_export(len(items) > 0, len(items))
+        # The right-hand inspector should only show its detailed metric
+        # grid once the user has *something* to look at.
+        self.inspector.set_metrics_visible(len(items) > 0)
 
     def _cleanup_worker(self) -> None:
         if self._worker is not None:

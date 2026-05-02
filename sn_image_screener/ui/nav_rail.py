@@ -41,7 +41,9 @@ from .icons import logo_pixmap
 # leaves room for a 40px square icon button + 2px frame border, expanded
 # is wide enough for "AI ANATOMY INSPECTOR" in the body font.
 RAIL_WIDTH_COLLAPSED = 64
-RAIL_WIDTH_EXPANDED = 232  # widened so labels never clip on default fonts
+# Short labels ("TECHNICAL", "AI INSPECTOR") fit comfortably in a
+# narrower rail; long-form names are reserved for the hover tooltip.
+RAIL_WIDTH_EXPANDED = 200
 
 # Square size of every rail button (and therefore the painted icons).
 BTN_SIZE = 44
@@ -159,6 +161,7 @@ class RailButton(QToolButton):
         label: str,
         icon: QIcon,
         parent: Optional[QWidget] = None,
+        tooltip: Optional[str] = None,
     ) -> None:
         super().__init__(parent)
         self._label = label
@@ -169,7 +172,11 @@ class RailButton(QToolButton):
         self.setIcon(icon)
         self.setIconSize(QSize(ICON_PX, ICON_PX))
         self.setText(label)
-        self.setToolTip(label)
+        # When a separate ``tooltip`` is given (typically the long-form
+        # mode name) we use it for the hover hint while the button itself
+        # shows the short label. Falls back to the label for backwards
+        # compatibility.
+        self.setToolTip(tooltip or label)
         # Label uppercase + bold matches the rest of the brutalist UI.
         f = self.font()
         f.setBold(True)
@@ -179,6 +186,12 @@ class RailButton(QToolButton):
 
     def set_collapsed(self, collapsed: bool) -> None:
         """Toggle between icon-only and icon + label layouts."""
+        # Calling ``setFixedSize`` in the collapsed branch locks BOTH
+        # the min and max width, so we have to release the maximum
+        # width when expanding again — otherwise the button stays
+        # 44 px wide and the label disappears even though the rail
+        # itself has grown.
+        QWIDGETSIZE_MAX = 16777215
         if collapsed:
             self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
             self.setFixedSize(BTN_SIZE, BTN_SIZE)
@@ -188,6 +201,7 @@ class RailButton(QToolButton):
                 Qt.ToolButtonStyle.ToolButtonTextBesideIcon
             )
             self.setMinimumSize(BTN_SIZE, BTN_SIZE)
+            self.setMaximumWidth(QWIDGETSIZE_MAX)
             self.setMaximumHeight(BTN_SIZE)
             self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
@@ -263,9 +277,19 @@ class NavRail(QFrame):
     # Public API
     # ------------------------------------------------------------------
 
-    def add_mode(self, label: str, icon: QIcon) -> RailButton:
-        """Append a new mode and return the underlying button."""
-        btn = RailButton(label, icon, parent=self)
+    def add_mode(
+        self,
+        label: str,
+        icon: QIcon,
+        tooltip: Optional[str] = None,
+    ) -> RailButton:
+        """Append a new mode and return the underlying button.
+
+        ``label`` is the short text drawn next to the icon when the rail
+        is expanded. ``tooltip`` is the long-form name shown on hover
+        (and is what the user reads when the rail is collapsed).
+        """
+        btn = RailButton(label, icon, parent=self, tooltip=tooltip)
         btn.set_collapsed(self._collapsed)
         self._modes_layout.addWidget(btn)
         idx = len(self._buttons)
