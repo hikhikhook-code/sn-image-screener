@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec for SN IMAGE SCREENER (single-file Windows build)."""
+"""PyInstaller spec for SN Image Screener (single-file Windows build)."""
 
 import os
 from pathlib import Path
@@ -69,7 +69,7 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        # Keep the binary lean: SN IMAGE SCREENER does not use these.
+        # Keep the binary lean: SN Image Screener does not use these.
         'PySide6.Qt3DAnimation',
         'PySide6.Qt3DCore',
         'PySide6.Qt3DExtras',
@@ -108,7 +108,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='SN_Image_Screener',
+    name='SN Image Screener',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

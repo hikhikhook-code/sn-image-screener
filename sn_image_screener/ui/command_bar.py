@@ -88,7 +88,7 @@ class CommandBar(QFrame):
         brand.setContentsMargins(0, 0, 0, 0)
         brand.setSpacing(0)
 
-        title = QLabel("SN IMAGE SCREENER")
+        title = QLabel("SN Image Screener")
         title.setObjectName("brand-title")
         brand.addWidget(title)
 

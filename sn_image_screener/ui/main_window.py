@@ -35,7 +35,7 @@ from .workers import ScanWorker
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle(f"{__app_name__}  ·  {__subtitle__}")
+        self.setWindowTitle(__app_name__)
         self.setMinimumSize(1180, 720)
         self.resize(1366, 820)
 

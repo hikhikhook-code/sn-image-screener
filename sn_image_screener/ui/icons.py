@@ -1,6 +1,6 @@
 """Icon loader.
 
-Single source of truth for the SN IMAGE SCREENER logo so the same artwork
+Single source of truth for the SN Image Screener logo so the same artwork
 appears as the OS window icon, the in-app brand badge, and the bundled
 .exe icon.
 """

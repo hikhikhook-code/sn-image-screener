@@ -1,4 +1,4 @@
-"""Entry point for SN IMAGE SCREENER."""
+"""Entry point for SN Image Screener."""
 
 from __future__ import annotations
 

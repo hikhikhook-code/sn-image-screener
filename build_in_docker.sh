@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euxo pipefail
-# Build SN_Image_Screener.exe inside a Wine + Windows Python 3.12 docker container.
-# Output: dist/SN_Image_Screener.exe (single-file Windows executable).
+# Build "SN Image Screener.exe" inside a Wine + Windows Python 3.12 docker container.
+# Output: dist/"SN Image Screener.exe" (single-file Windows executable).
 
 cd /src
 wine python.exe -m pip install --upgrade --no-warn-script-location pip wheel

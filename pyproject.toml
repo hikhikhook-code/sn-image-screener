@@ -1,7 +1,7 @@
 [project]
 name = "sn-image-screener"
-version = "1.0.0"
-description = "SN IMAGE SCREENER — local image quality screening with a brutalism-inspired desktop UI."
+version = "1.0.1"
+description = "SN Image Screener — local image quality screening with a brutalism-inspired desktop UI."
 requires-python = ">=3.10"
 readme = "README.md"
 license = { text = "MIT" }

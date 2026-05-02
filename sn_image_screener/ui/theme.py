@@ -1,4 +1,4 @@
-"""Brutalism-inspired theme for SN IMAGE SCREENER.
+"""Brutalism-inspired theme for SN Image Screener.
 
 Design notes:
 * Warm off-white base, charcoal text and 2px hard borders.
