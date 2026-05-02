@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convenience launcher for SN IMAGE SCREENER (no install required)."""
+"""Convenience launcher for SN Image Screener (no install required)."""
 
 from sn_image_screener.main import main
 

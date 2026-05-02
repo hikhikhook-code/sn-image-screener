@@ -25,6 +25,9 @@ dist/
 out/
 output/
 exports/
+sample-images/
+out_samples/
+README - SN Image Screener*.txt
 
 # OS
 .DS_Store

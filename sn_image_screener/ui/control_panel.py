@@ -40,8 +40,16 @@ def _dspinbox(value: float, lo: float = 0.0, hi: float = 99999.0, step: float = 
     return s
 
 
-class ControlPanel(QScrollArea):
-    """Left side panel — emits signals for command-bar-equivalent actions."""
+def _hint(text: str) -> QLabel:
+    """Small grey hint label placed beneath a field."""
+    lab = QLabel(text)
+    lab.setObjectName("field-hint")
+    lab.setWordWrap(True)
+    return lab
+
+
+class ControlPanel(QFrame):
+    """Left side panel — scrollable settings on top, sticky START SCAN at the bottom."""
 
     add_folder_clicked = Signal()
     add_files_clicked  = Signal()
@@ -52,15 +60,26 @@ class ControlPanel(QScrollArea):
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.setWidgetResizable(True)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setFrameShape(QFrame.NoFrame)
         self.setMinimumWidth(310)
         self.setMaximumWidth(440)
+        self.setObjectName("control-panel-root")
+
+        # Outer layout: scroll area (top) + sticky START SCAN block (bottom)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        self.scroll = QScrollArea(self)
+        self.scroll.setObjectName("control-scroll")
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.scroll.setFrameShape(QFrame.NoFrame)
+        outer.addWidget(self.scroll, 1)
 
         host = QWidget()
         host.setObjectName("root")
-        self.setWidget(host)
+        self.scroll.setWidget(host)
 
         layout = QVBoxLayout(host)
         layout.setContentsMargins(14, 14, 14, 14)
@@ -165,11 +184,19 @@ class ControlPanel(QScrollArea):
 
         self.chk_copy_pass = QCheckBox("Copy PASS files on export"); self.chk_copy_pass.setChecked(True)
         self.chk_copy_review = QCheckBox("Copy REVIEW files on export")
+        self.chk_copy_reject = QCheckBox("Copy REJECT files on export")
         self.chk_export_csv = QCheckBox("Write CSV report"); self.chk_export_csv.setChecked(True)
         self.chk_export_json = QCheckBox("Write JSON report")
-        for cb in (self.chk_copy_pass, self.chk_copy_review,
+        for cb in (self.chk_copy_pass, self.chk_copy_review, self.chk_copy_reject,
                    self.chk_export_csv, self.chk_export_json):
             self.grp_output.add(cb)
+        # Hint: clarify that exports are auto-organised into subfolders.
+        hint = _hint(
+            "Each ticked group is copied into its own subfolder "
+            "(PASS / REVIEW / REJECT) inside the export folder. "
+            "Original files are never moved or modified."
+        )
+        self.grp_output.add(hint)
 
         # --- Advanced (collapsed) ----------------------------------------
         self.grp_advanced = CollapsibleGroup("Advanced", expanded=False)
@@ -187,40 +214,114 @@ class ControlPanel(QScrollArea):
         self.sp_exp_min = _dspinbox(35,  0, 255, 5, decimals=1)
         self.sp_exp_max = _dspinbox(225, 0, 255, 5, decimals=1)
 
-        adv_form = QFormLayout()
-        adv_form.setSpacing(6)
-        adv_form.setLabelAlignment(Qt.AlignLeft)
-        adv_form.addRow("Min file size (KB)", self.sp_min_kb)
-        adv_form.addRow("Min width (px)",     self.sp_min_w)
-        adv_form.addRow("Min height (px)",    self.sp_min_h)
-        adv_form.addRow("Blur reject below",  self.sp_blur_reject)
-        adv_form.addRow("Blur review below",  self.sp_blur_review)
-        adv_form.addRow("Noise reject above", self.sp_noise_reject)
-        adv_form.addRow("Noise review above", self.sp_noise_review)
-        adv_form.addRow("JPG artifact reject", self.sp_artifact_reject)
-        adv_form.addRow("JPG artifact review", self.sp_artifact_review)
-        adv_form.addRow("Exposure min (mean)", self.sp_exp_min)
-        adv_form.addRow("Exposure max (mean)", self.sp_exp_max)
+        # Each setting is rendered as a 3-row block:
+        #   [name]
+        #   [spinbox]
+        #   [hint text]
+        adv_box = QVBoxLayout()
+        adv_box.setSpacing(8)
+
+        def _add_field(name: str, spin: QWidget, hint: str) -> None:
+            cap = label(name, soft=False, size=11)
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            row.addWidget(cap, 1)
+            row.addWidget(spin, 0)
+            adv_box.addLayout(row)
+            adv_box.addWidget(_hint(hint))
+
+        _add_field(
+            "Min file size (KB)", self.sp_min_kb,
+            "Files smaller than this fail the file-size gate.",
+        )
+        _add_field(
+            "Min width (px)",  self.sp_min_w,
+            "Images narrower than this fail the resolution gate.",
+        )
+        _add_field(
+            "Min height (px)", self.sp_min_h,
+            "Images shorter than this fail the resolution gate.",
+        )
+        _add_field(
+            "Blur reject below",  self.sp_blur_reject,
+            "Variance of Laplacian. <reject = blurry · reject–review = soft · >review = sharp",
+        )
+        _add_field(
+            "Blur review below",  self.sp_blur_review,
+            "Between this value and 'reject' is flagged for review.",
+        )
+        _add_field(
+            "Noise reject above", self.sp_noise_reject,
+            "High-frequency stddev. >reject = very noisy · review–reject = grainy · <review = clean",
+        )
+        _add_field(
+            "Noise review above", self.sp_noise_review,
+            "Above this (but below reject) is flagged for review.",
+        )
+        _add_field(
+            "JPG artifact reject", self.sp_artifact_reject,
+            "8×8 block boundary energy. >reject = heavy compression · <review = clean",
+        )
+        _add_field(
+            "JPG artifact review", self.sp_artifact_review,
+            "Above this (but below reject) is flagged for review.",
+        )
+        _add_field(
+            "Exposure min (mean)", self.sp_exp_min,
+            "Mean below this is too dark. Typical range 30-50.",
+        )
+        _add_field(
+            "Exposure max (mean)", self.sp_exp_max,
+            "Mean above this is too bright. Typical range 220-235.",
+        )
+
         for spin in (self.sp_min_kb, self.sp_min_w, self.sp_min_h,
                      self.sp_blur_reject, self.sp_blur_review,
                      self.sp_noise_reject, self.sp_noise_review,
                      self.sp_artifact_reject, self.sp_artifact_review,
                      self.sp_exp_min, self.sp_exp_max):
             spin.valueChanged.connect(self.rules_changed.emit)
-        self.grp_advanced.add_layout(adv_form)
 
-        # --- Quick-start CTA ---------------------------------------------
-        self.btn_start = QPushButton("▶  START SCAN")
-        self.btn_start.setObjectName("brutal-primary")
-        self.btn_start.setMinimumHeight(46)
-        f = self.btn_start.font()
-        f.setPointSize(13)
-        f.setBold(True)
-        self.btn_start.setFont(f)
-        self.btn_start.clicked.connect(self.start_clicked.emit)
-        layout.addWidget(self.btn_start)
+        # Permanent-delete escape hatch (defaults to OFF — Recycle Bin used).
+        self.chk_permanent_delete = QCheckBox(
+            "Permanent delete (skip Recycle Bin)"
+        )
+        adv_box.addSpacing(8)
+        adv_box.addWidget(self.chk_permanent_delete)
+        adv_box.addWidget(_hint(
+            "Off = files moved to your OS Recycle Bin (recoverable). "
+            "On = files permanently deleted. Use with caution."
+        ))
+
+        self.grp_advanced.add_layout(adv_box)
 
         layout.addStretch(1)
+
+        # --- Sticky bottom block (OUTSIDE the scroll area) --------------
+        sticky = QFrame()
+        sticky.setObjectName("control-sticky")
+        sticky_lay = QVBoxLayout(sticky)
+        sticky_lay.setContentsMargins(14, 10, 14, 14)
+        sticky_lay.setSpacing(6)
+
+        self.btn_start = QPushButton("▶  START SCAN")
+        self.btn_start.setObjectName("brutal-primary")
+        self.btn_start.setMinimumHeight(54)
+        f = self.btn_start.font()
+        f.setPointSize(14)
+        f.setBold(True)
+        f.setLetterSpacing(f.SpacingType.AbsoluteSpacing, 1.2)
+        self.btn_start.setFont(f)
+        self.btn_start.setCursor(Qt.PointingHandCursor)
+        self.btn_start.clicked.connect(self.start_clicked.emit)
+        sticky_lay.addWidget(self.btn_start)
+
+        sticky_hint = QLabel("↑  scroll for advanced settings")
+        sticky_hint.setObjectName("scroll-hint")
+        sticky_hint.setAlignment(Qt.AlignCenter)
+        sticky_lay.addWidget(sticky_hint)
+
+        outer.addWidget(sticky, 0)
 
         # Apply default preset to spinboxes.
         self._on_preset_changed("Normal")
@@ -238,10 +339,14 @@ class ControlPanel(QScrollArea):
         n = len(folders) + len(files)
         if n == 0:
             self.lbl_source_count.setText("— no sources added —")
+            self.btn_start.setEnabled(False)
+            self.btn_start.setText("▶  ADD A FOLDER FIRST")
         else:
             self.lbl_source_count.setText(
                 f"{len(folders)} folder(s)  ·  {len(files)} loose file(s)"
             )
+            self.btn_start.setEnabled(True)
+            self.btn_start.setText("▶  START SCAN")
 
     def current_rules(self) -> Rules:
         base = PRESETS.get(self.cmb_preset.currentText(), PRESETS["Normal"])

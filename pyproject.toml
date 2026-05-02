@@ -1,7 +1,7 @@
 [project]
 name = "sn-image-screener"
-version = "1.0.0"
-description = "SN IMAGE SCREENER — local image quality screening with a brutalism-inspired desktop UI."
+version = "1.0.1"
+description = "SN Image Screener — local image quality screening with a brutalism-inspired desktop UI."
 requires-python = ">=3.10"
 readme = "README.md"
 license = { text = "MIT" }
@@ -23,6 +23,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["sn_image_screener*"]
+
+[tool.setuptools.package-data]
+"sn_image_screener.assets" = ["*.png", "*.ico"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

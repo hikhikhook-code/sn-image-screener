@@ -206,6 +206,27 @@ class ResultsTable(QFrame):
     def items(self) -> List[ScanItem]:
         return [self._items[r] for r in sorted(self._items)]
 
+    def remove_paths(self, paths) -> int:
+        """Remove rows whose item.path is in `paths`. Returns count removed."""
+        targets = {Path(p).resolve() for p in paths}
+        rows_to_remove = sorted(
+            (r for r, it in self._items.items()
+             if it.path.resolve() in targets),
+            reverse=True,
+        )
+        for r in rows_to_remove:
+            self.table.removeRow(r)
+        # Rebuild the index because row numbers shifted.
+        new_items: Dict[int, ScanItem] = {}
+        new_row = 0
+        for r in sorted(self._items):
+            if r in rows_to_remove:
+                continue
+            new_items[new_row] = self._items[r]
+            new_row += 1
+        self._items = new_items
+        return len(rows_to_remove)
+
     def selected_item(self) -> Optional[ScanItem]:
         rows = {idx.row() for idx in self.table.selectedIndexes()}
         if not rows:

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import platform
-import sys
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
@@ -11,29 +9,34 @@ from typing import List, Optional
 from PySide6.QtCore import Qt, QThread
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QMainWindow,
-    QMessageBox, QProgressBar, QSizePolicy, QSplitter, QStatusBar,
-    QVBoxLayout, QWidget,
+    QApplication, QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel,
+    QMainWindow, QProgressBar, QSplitter, QStackedWidget,
+    QStatusBar, QVBoxLayout, QWidget,
 )
 
 from .. import __app_name__, __subtitle__, __version__
 from ..core.classifier import Status
+from ..core.deleter import human_size, total_size, trash_files
 from ..core.exporter import copy_by_status, export_csv, export_json
 from ..core.scanner import collect_paths
+from ..services.ai import KeyManager
 from . import theme
+from .ai import AIPanel
+from .delete_dialog import DeleteConfirmDialog
 from .command_bar import CommandBar
 from .control_panel import ControlPanel
 from .inspector import Inspector
 from .log_panel import LogPanel
+from .nav_rail import NavRail, ai_anatomy_icon, technical_quality_icon
 from .results_table import ResultsTable
-from .widgets import HardDivider, label
+from .toast import Toaster
 from .workers import ScanWorker
 
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle(f"{__app_name__}  ·  {__subtitle__}")
+        self.setWindowTitle(__app_name__)
         self.setMinimumSize(1180, 720)
         self.resize(1366, 820)
 
@@ -62,14 +65,15 @@ class MainWindow(QMainWindow):
         self.command_bar.start_clicked.connect(self.start_scan)
         self.command_bar.stop_clicked.connect(self.stop_scan)
         self.command_bar.export_clicked.connect(self.export_results)
+        self.command_bar.delete_clicked.connect(self.delete_rejected)
         layout.addWidget(self.command_bar)
 
-        # Body splitter --------------------------------------------------
+        # ---- Build the Technical Quality tab body ---------------------
         self.h_split = QSplitter(Qt.Horizontal)
         self.h_split.setHandleWidth(2)
         self.h_split.setChildrenCollapsible(False)
 
-        # Left ---------------------------------------------------------
+        # Left
         self.control_panel = ControlPanel()
         self.control_panel.add_folder_clicked.connect(self.add_folder)
         self.control_panel.add_files_clicked.connect(self.add_files)
@@ -77,7 +81,7 @@ class MainWindow(QMainWindow):
         self.control_panel.start_clicked.connect(self.start_scan)
         self.h_split.addWidget(self.control_panel)
 
-        # Center: results + bottom log via vertical splitter -----------
+        # Center: results + bottom log via vertical splitter
         center_split = QSplitter(Qt.Vertical)
         center_split.setHandleWidth(2)
         center_split.setChildrenCollapsible(False)
@@ -103,7 +107,7 @@ class MainWindow(QMainWindow):
 
         self.h_split.addWidget(center_split)
 
-        # Right --------------------------------------------------------
+        # Right
         self.inspector = Inspector()
         self.h_split.addWidget(self.inspector)
 
@@ -112,7 +116,39 @@ class MainWindow(QMainWindow):
         self.h_split.setStretchFactor(2, 0)
         self.h_split.setSizes([330, 760, 360])
 
-        layout.addWidget(self.h_split, 1)
+        # ---- Build the AI Anatomy Inspector tab -----------------------
+        self.key_manager = KeyManager()
+        self.ai_panel = AIPanel(self.key_manager)
+        self.ai_panel.log_line.connect(self._on_ai_log)
+        # Mirror the Source toolbar so users can add folders / files and
+        # clear the queue from inside the AI tab too.
+        self.ai_panel.add_folder_requested.connect(self.add_folder)
+        self.ai_panel.add_files_requested.connect(self.add_files)
+        self.ai_panel.clear_sources_requested.connect(self.clear_sources)
+
+        # ---- Mode pages (Technical Quality / AI Anatomy Inspector) ----
+        # The two former tab bodies become pages of a QStackedWidget so
+        # the new collapsible left rail can swap between them.
+        self.mode_stack = QStackedWidget()
+        self.mode_stack.addWidget(self.h_split)
+        self.mode_stack.addWidget(self.ai_panel)
+
+        # ---- Collapsible left navigation rail -------------------------
+        self.nav_rail = NavRail()
+        self.nav_rail.add_mode(
+            "TECHNICAL QUALITY", technical_quality_icon()
+        )
+        self.nav_rail.add_mode(
+            "AI ANATOMY INSPECTOR", ai_anatomy_icon()
+        )
+        self.nav_rail.mode_changed.connect(self._on_mode_changed)
+
+        body = QHBoxLayout()
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(8)
+        body.addWidget(self.nav_rail)
+        body.addWidget(self.mode_stack, 1)
+        layout.addLayout(body, 1)
 
         # Status bar ----------------------------------------------------
         self.setStatusBar(QStatusBar())
@@ -124,6 +160,12 @@ class MainWindow(QMainWindow):
         # Welcome log
         self.log_panel.info(f"{__app_name__} v{__version__} ready")
         self.log_panel.info("Add a folder or files, choose a preset, then Start Scan")
+
+        # Toast notifications (top-right corner)
+        self.toaster = Toaster(self)
+        self.control_panel.cmb_preset.currentTextChanged.connect(
+            lambda name: self.toaster.info("Preset", f"Switched to {name}")
+        )
 
     # =====================================================================
     # Layout helpers
@@ -200,7 +242,10 @@ class MainWindow(QMainWindow):
             return
         self._folders.append(p)
         self.control_panel.update_source_summary(self._folders, self._files)
+        self._refresh_source_state()
+        self._sync_ai_files()
         self.log_panel.info(f"Folder added · {p}")
+        self.toaster.ok("Folder added", p.name or str(p))
 
     def add_files(self) -> None:
         files, _ = QFileDialog.getOpenFileNames(
@@ -216,13 +261,63 @@ class MainWindow(QMainWindow):
                 self._files.append(p)
                 added += 1
         self.control_panel.update_source_summary(self._folders, self._files)
+        self._refresh_source_state()
+        self._sync_ai_files()
         self.log_panel.info(f"{added} file(s) added")
+        if added:
+            self.toaster.ok("Files added", f"{added} image(s) queued")
 
     def clear_sources(self) -> None:
         self._folders.clear()
         self._files.clear()
         self.control_panel.update_source_summary(self._folders, self._files)
+        self._refresh_source_state()
+        self._sync_ai_files()
         self.log_panel.info("Sources cleared")
+        self.toaster.info("Sources cleared")
+
+    def _sync_ai_files(self) -> None:
+        """Push the current source list into the AI tab's queue."""
+        try:
+            paths = collect_paths(self._folders, self._files)
+        except Exception:  # noqa: BLE001
+            paths = []
+        self.ai_panel.set_files(paths)
+
+    def _on_mode_changed(self, index: int) -> None:
+        """Adjust the command bar to match the active mode.
+
+        Technical Quality (index 0) keeps Start / Export / Delete enabled;
+        AI Anatomy Inspector (index 1) shows the same command bar but
+        Start / Export / Delete are disabled because the AI mode has its
+        own RUN button and uses Export Results from the Technical mode
+        for now.
+        """
+        self.mode_stack.setCurrentIndex(index)
+        is_technical = (index == 0)
+        self.command_bar.set_can_start(
+            is_technical and (bool(self._folders) or bool(self._files))
+        )
+        self.command_bar.set_scanning(False)
+        # Push the latest file list into the AI mode whenever the user
+        # switches over so the queue is always fresh.
+        if not is_technical:
+            self._sync_ai_files()
+
+    def _on_ai_log(self, line: str) -> None:
+        """Forward AI worker log lines into the activity log panel."""
+        # Use info level — errors carry their own marker text.
+        if "ERROR" in line.upper() or "FAILED" in line.upper():
+            self.log_panel.err(f"AI · {line}")
+        elif "switching" in line.lower():
+            self.log_panel.warn(f"AI · {line}")
+        else:
+            self.log_panel.info(f"AI · {line}")
+
+    def _refresh_source_state(self) -> None:
+        """Mirror the disabled-when-empty state to the command bar START button."""
+        has_source = bool(self._folders) or bool(self._files)
+        self.command_bar.set_can_start(has_source)
 
     # =====================================================================
     # Scanning
@@ -234,9 +329,9 @@ class MainWindow(QMainWindow):
 
         paths = collect_paths(self._folders, self._files)
         if not paths:
-            QMessageBox.warning(
-                self, __app_name__,
-                "No images to scan. Use Add Folder or Add Files first.",
+            self.toaster.warn(
+                "Nothing to scan",
+                "Add a folder or files first",
             )
             return
 
@@ -254,6 +349,10 @@ class MainWindow(QMainWindow):
             f"Scanning {len(paths)} file(s) — preset {self.control_panel.cmb_preset.currentText()}"
         )
         self.log_panel.info(f"Scan started · {len(paths)} file(s) · preset {self.control_panel.cmb_preset.currentText()}")
+        self.toaster.info(
+            "Scan started",
+            f"{len(paths)} image(s) · preset {self.control_panel.cmb_preset.currentText()}",
+        )
 
         # Spin up worker thread
         self._thread = QThread(self)
@@ -274,6 +373,7 @@ class MainWindow(QMainWindow):
         self._worker.stop()
         self.command_bar.set_status("STOPPED")
         self.log_panel.warn("Stop requested…")
+        self.toaster.warn("Stop requested", "Finishing the current image…")
 
     # ----- worker signals -----
 
@@ -289,6 +389,7 @@ class MainWindow(QMainWindow):
             self._counts[st] += 1
         total = sum(self._counts.values())
         self._update_counters(total)
+        self._refresh_delete_button()
 
         if item.error:
             self.log_panel.err(f"{item.path.name} · {item.error}")
@@ -308,6 +409,10 @@ class MainWindow(QMainWindow):
             self.command_bar.set_status("STOPPED")
             self.log_panel.warn("Scan stopped.")
             self.statusBar().showMessage("Scan stopped.")
+            self.toaster.warn(
+                "Scan stopped",
+                f"PASS {self._counts['PASS']}  ·  REVIEW {self._counts['REVIEW']}  ·  REJECT {self._counts['REJECT']}",
+            )
         else:
             self.command_bar.set_status("COMPLETED")
             self.log_panel.ok(
@@ -318,7 +423,18 @@ class MainWindow(QMainWindow):
                 f"ERROR {self._counts['ERROR']}"
             )
             self.statusBar().showMessage("Scan complete.")
+            self.toaster.ok(
+                "Scan complete",
+                f"PASS {self._counts['PASS']}  ·  REVIEW {self._counts['REVIEW']}  ·  REJECT {self._counts['REJECT']}",
+            )
         self.command_bar.set_scanning(False)
+        self._refresh_delete_button()
+
+    def _refresh_delete_button(self) -> None:
+        """Enable the Delete button only when at least one REJECT row exists."""
+        items = self.results.items()
+        n_reject = sum(1 for it in items if it.status == Status.REJECT)
+        self.command_bar.set_can_delete(n_reject > 0, n_reject)
 
     def _cleanup_worker(self) -> None:
         if self._worker is not None:
@@ -347,9 +463,7 @@ class MainWindow(QMainWindow):
     def export_results(self) -> None:
         items = self.results.items()
         if not items:
-            QMessageBox.information(
-                self, __app_name__, "Nothing to export — run a scan first.",
-            )
+            self.toaster.warn("Nothing to export", "Run a scan first")
             return
 
         out = self.control_panel.output_dir()
@@ -364,32 +478,113 @@ class MainWindow(QMainWindow):
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         try:
+            # If the user has run the AI Anatomy Inspector, fold those
+            # results into the report (CSV gets extra columns, JSON gets
+            # a nested ``ai`` block per row including defect_regions).
+            ai_results = self.ai_panel.results() if hasattr(self, "ai_panel") else {}
+
             # CSV / JSON reports
             if self.control_panel.chk_export_csv.isChecked():
                 csv_path = out / f"report_{ts}.csv"
-                export_csv(items, csv_path)
+                export_csv(items, csv_path, ai_results=ai_results or None)
                 self.log_panel.ok(f"CSV report → {csv_path}")
             if self.control_panel.chk_export_json.isChecked():
                 json_path = out / f"report_{ts}.json"
-                export_json(items, json_path)
+                export_json(items, json_path, ai_results=ai_results or None)
                 self.log_panel.ok(f"JSON report → {json_path}")
 
-            # Copy good files
+            # Copy files into per-status subfolders (PASS / REVIEW / REJECT).
             statuses_to_copy = []
             if self.control_panel.chk_copy_pass.isChecked():
                 statuses_to_copy.append(Status.PASS)
             if self.control_panel.chk_copy_review.isChecked():
                 statuses_to_copy.append(Status.REVIEW)
+            if self.control_panel.chk_copy_reject.isChecked():
+                statuses_to_copy.append(Status.REJECT)
             if statuses_to_copy:
-                target = out / "selected"
-                written = copy_by_status(items, target, statuses_to_copy)
-                self.log_panel.ok(f"Copied {len(written)} file(s) → {target}")
+                written = copy_by_status(items, out, statuses_to_copy)
+                buckets = " / ".join(s.value for s in statuses_to_copy)
+                self.log_panel.ok(
+                    f"Copied {len(written)} file(s) → {out}  ({buckets})"
+                )
 
             self.statusBar().showMessage(f"Export complete · {out}")
+            self.toaster.ok("Export complete", str(out))
         except Exception as exc:  # noqa: BLE001
             self.log_panel.err(f"Export failed · {exc}")
-            QMessageBox.critical(self, __app_name__, f"Export failed:\n{exc}")
+            self.toaster.err("Export failed", str(exc))
             return
+
+    # =====================================================================
+    # Delete
+    # =====================================================================
+
+    def delete_rejected(self) -> None:
+        """Show confirm dialog and trash REJECT (and optionally REVIEW) files."""
+        items = self.results.items()
+        rej = [it for it in items if it.status == Status.REJECT]
+        rev = [it for it in items if it.status == Status.REVIEW]
+        if not rej and not rev:
+            self.toaster.warn("Nothing to delete", "Run a scan first")
+            return
+
+        dlg = DeleteConfirmDialog(
+            self,
+            n_reject=len(rej),
+            size_reject=total_size(it.path for it in rej),
+            n_review=len(rev),
+            size_review=total_size(it.path for it in rev),
+            permanent_default=self.control_panel.chk_permanent_delete.isChecked(),
+        )
+        if dlg.exec() != QDialog.Accepted:
+            return
+
+        targets: List[Path] = []
+        if dlg.include_reject:
+            targets += [it.path for it in rej]
+        if dlg.include_review:
+            targets += [it.path for it in rev]
+        if not targets:
+            return
+
+        permanent = dlg.permanent
+        # Snapshot sizes before deletion so we can show a useful toast.
+        size_before = total_size(targets)
+        deleted, errors = trash_files(targets, permanent=permanent)
+
+        if deleted:
+            self.results.remove_paths(deleted)
+            for it in items:
+                if it.path in deleted:
+                    if it.status == Status.REJECT:
+                        self._counts["REJECT"] = max(0, self._counts["REJECT"] - 1)
+                    elif it.status == Status.REVIEW:
+                        self._counts["REVIEW"] = max(0, self._counts["REVIEW"] - 1)
+            self._update_counters(sum(self._counts.values()))
+
+        action = "Permanently deleted" if permanent else "Moved to Recycle Bin"
+        if deleted and not errors:
+            self.toaster.ok(
+                f"{action}",
+                f"{len(deleted)} file(s) · {human_size(size_before)}",
+            )
+            self.log_panel.ok(f"{action} · {len(deleted)} file(s)")
+        elif deleted and errors:
+            self.toaster.warn(
+                f"{action} (partial)",
+                f"{len(deleted)} ok, {len(errors)} error(s)",
+            )
+            for p, msg in errors:
+                self.log_panel.err(f"Delete failed: {p.name} · {msg}")
+        else:
+            self.toaster.err(
+                "Delete failed",
+                f"{len(errors)} error(s) — see activity log",
+            )
+            for p, msg in errors:
+                self.log_panel.err(f"Delete failed: {p.name} · {msg}")
+
+        self._refresh_delete_button()
 
     # =====================================================================
     # Lifecycle

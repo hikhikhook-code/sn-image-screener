@@ -1,4 +1,4 @@
-"""Brutalism-inspired theme for SN IMAGE SCREENER.
+"""Brutalism-inspired theme for SN Image Screener.
 
 Design notes:
 * Warm off-white base, charcoal text and 2px hard borders.
@@ -59,6 +59,18 @@ QMainWindow, QWidget#root {{
     background: {BG};
 }}
 
+/* Dialogs & message boxes — keep them on the light palette so user
+   forms (API keys, delete confirmation, etc.) stay readable when the
+   host OS is in dark mode. */
+QDialog, QMessageBox {{
+    background: {BG};
+    color: {INK};
+}}
+
+QDialog QLabel, QMessageBox QLabel {{
+    color: {INK};
+}}
+
 QFrame#brutal-card {{
     background: {SURFACE};
     border: 2px solid {INK};
@@ -73,6 +85,33 @@ QFrame#brutal-divider {{
     background: {INK};
     min-height: 2px;
     max-height: 2px;
+}}
+
+/* Left control panel (root + sticky footer) ----------------------------- */
+QFrame#control-panel-root {{
+    background: {SURFACE_ALT};
+    border-right: 2px solid {INK};
+}}
+
+QFrame#control-sticky {{
+    background: {LIME};
+    border-top: 2px solid {INK};
+}}
+
+QLabel#scroll-hint {{
+    color: {INK};
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    background: transparent;
+}}
+
+QLabel#field-hint {{
+    color: {INK_MUTED};
+    font-size: 10px;
+    font-weight: 500;
+    background: transparent;
+    margin-left: 2px;
 }}
 
 QLabel#brand-title {{
@@ -157,6 +196,11 @@ QPushButton#brutal-primary:hover {{
     background: {INK};
     color: {ORANGE};
 }}
+QPushButton#brutal-primary:disabled {{
+    background: {SURFACE_ALT};
+    color: {INK_MUTED};
+    border-color: {INK_MUTED};
+}}
 
 QPushButton#brutal-secondary {{
     background: {LIME};
@@ -165,6 +209,25 @@ QPushButton#brutal-secondary {{
 QPushButton#brutal-secondary:hover {{
     background: {INK};
     color: {LIME};
+}}
+QPushButton#brutal-secondary:disabled {{
+    background: {SURFACE_ALT};
+    color: {INK_MUTED};
+    border-color: {INK_MUTED};
+}}
+
+QPushButton#brutal-danger {{
+    background: {REJECT_BG};
+    color: #FFFFFF;
+}}
+QPushButton#brutal-danger:hover {{
+    background: {INK};
+    color: {REJECT_BG};
+}}
+QPushButton#brutal-danger:disabled {{
+    background: {SURFACE_ALT};
+    color: {INK_MUTED};
+    border-color: {INK_MUTED};
 }}
 
 QPushButton#brutal-ghost {{
@@ -206,10 +269,65 @@ QPushButton#group-toggle:checked {{
     color: {LIME};
 }}
 
+/* Navigation rail -------------------------------------------------------- */
+
+QFrame#nav-rail {{
+    background: {SURFACE_ALT};
+    border-right: 2px solid {INK};
+}}
+
+QFrame#rail-divider {{
+    background: {INK};
+    border: 0;
+    min-height: 2px;
+    max-height: 2px;
+}}
+
+QLabel#rail-logo {{
+    background: transparent;
+    padding: 4px 0px;
+}}
+
+QToolButton#rail-toggle {{
+    background: {SURFACE};
+    color: {INK};
+    border: 2px solid {INK};
+    padding: 2px 6px;
+    font-weight: 900;
+}}
+QToolButton#rail-toggle:hover {{
+    background: {INK};
+    color: {LIME};
+}}
+
+QToolButton#rail-button {{
+    background: {SURFACE};
+    color: {INK};
+    border: 2px solid {INK};
+    padding: 6px 10px;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 1px;
+    text-align: left;
+}}
+QToolButton#rail-button:hover {{
+    background: {INK};
+    color: {LIME};
+}}
+QToolButton#rail-button:checked {{
+    background: {ORANGE};
+    color: {INK};
+    border: 2px solid {INK};
+}}
+QToolButton#rail-button:checked:hover {{
+    background: {ORANGE};
+    color: {INK};
+}}
+
 /* Input fields ---------------------------------------------------------- */
 
 QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {{
-    background: {SURFACE};
+    background-color: {SURFACE};
     color: {INK};
     border: 2px solid {INK};
     padding: 5px 8px;
@@ -219,8 +337,15 @@ QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {{
     font-size: 12px;
 }}
 
+QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled,
+QComboBox:disabled {{
+    background-color: {SURFACE_ALT};
+    color: {INK_MUTED};
+}}
+
 QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{
-    background: {LIME};
+    background-color: {LIME};
+    color: {INK};
 }}
 
 QComboBox::drop-down {{
@@ -295,23 +420,51 @@ QHeaderView::section:last {{
 QTableWidget::item {{
     padding: 6px 8px;
     border-bottom: 1px solid {LINE_SOFT};
+    color: {INK};
+    background-color: {SURFACE};
+}}
+
+QTableWidget::item:selected {{
+    background-color: {LIME};
+    color: {INK};
 }}
 
 /* Scrollbars ------------------------------------------------------------ */
 
 QScrollBar:vertical {{
     background: {SURFACE_ALT};
-    width: 12px;
+    width: 16px;
     border-left: 2px solid {INK};
     margin: 0;
 }}
 QScrollBar::handle:vertical {{
     background: {INK};
-    min-height: 30px;
+    min-height: 36px;
+    border: 2px solid {INK};
+    margin: 2px;
+}}
+QScrollBar::handle:vertical:hover {{
+    background: {COBALT};
     border: 2px solid {INK};
 }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
     height: 0;
+}}
+
+/* High-contrast scroll for the left control panel ----------------------- */
+QScrollArea#control-scroll > QScrollBar:vertical {{
+    background: {LIME};
+    width: 18px;
+    border-left: 2px solid {INK};
+}}
+QScrollArea#control-scroll > QScrollBar::handle:vertical {{
+    background: {INK};
+    min-height: 50px;
+    border: 2px solid {INK};
+    margin: 2px;
+}}
+QScrollArea#control-scroll > QScrollBar::handle:vertical:hover {{
+    background: {ORANGE};
 }}
 
 QScrollBar:horizontal {{

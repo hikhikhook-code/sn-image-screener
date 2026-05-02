@@ -64,6 +64,40 @@ def test_copy_by_status_only_targeted(tmp_path: Path, sample_dir: Path):
     actual = {p.name for p in written}
     assert actual == expected
 
+    # Each copy lives in its status-named subfolder (PASS/, REVIEW/).
+    for p in written:
+        assert p.parent.name in {"PASS", "REVIEW"}
+
     # Originals untouched
     for it in items:
         assert it.path.exists()
+
+
+def test_copy_by_status_split_subfolders(tmp_path: Path, sample_dir: Path):
+    """Asking for all three buckets writes them into separate subfolders."""
+    rules = PRESETS["Normal"]
+    items = [screen_one(p, rules) for p in sample_dir.iterdir()
+             if p.suffix.lower() in {".jpg", ".jpeg"}]
+    out = tmp_path / "out"
+    written = copy_by_status(
+        items, out, [Status.PASS, Status.REVIEW, Status.REJECT],
+    )
+    # Every output path is exactly two segments below `out`:
+    # out/<STATUS>/<filename>
+    for p in written:
+        assert p.parent.parent == out
+        assert p.parent.name in {"PASS", "REVIEW", "REJECT"}
+
+
+def test_copy_by_status_flat_legacy(tmp_path: Path, sample_dir: Path):
+    """Legacy flat layout (no subfolders) still available via flag."""
+    rules = PRESETS["Normal"]
+    items = [screen_one(p, rules) for p in sample_dir.iterdir()
+             if p.suffix.lower() in {".jpg", ".jpeg"}]
+    out = tmp_path / "flat"
+    written = copy_by_status(
+        items, out, [Status.PASS, Status.REVIEW],
+        split_subfolders=False,
+    )
+    for p in written:
+        assert p.parent == out

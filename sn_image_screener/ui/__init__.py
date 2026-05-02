@@ -1,1 +1,1 @@
-"""SN IMAGE SCREENER — PySide6 UI package."""
+"""SN Image Screener — PySide6 UI package."""

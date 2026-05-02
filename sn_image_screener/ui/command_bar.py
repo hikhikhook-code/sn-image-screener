@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import theme
+from .icons import logo_pixmap
 
 
 _STATUS_PALETTE = {
@@ -56,6 +57,7 @@ class CommandBar(QFrame):
     start_clicked = Signal()
     stop_clicked = Signal()
     export_clicked = Signal()
+    delete_clicked = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -67,10 +69,26 @@ class CommandBar(QFrame):
         layout.setSpacing(12)
 
         # Brand block ------------------------------------------------------
-        brand = QVBoxLayout()
+        # Logo (left) + title/subtitle (right).
+        brand_wrap = QFrame()
+        brand_h = QHBoxLayout(brand_wrap)
+        brand_h.setContentsMargins(0, 0, 0, 0)
+        brand_h.setSpacing(10)
+
+        logo = QLabel()
+        logo.setObjectName("brand-logo")
+        pm = logo_pixmap(40)
+        if not pm.isNull():
+            logo.setPixmap(pm)
+        logo.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+        brand_h.addWidget(logo)
+
+        brand_text = QFrame()
+        brand = QVBoxLayout(brand_text)
+        brand.setContentsMargins(0, 0, 0, 0)
         brand.setSpacing(0)
 
-        title = QLabel("SN IMAGE SCREENER")
+        title = QLabel("SN Image Screener")
         title.setObjectName("brand-title")
         brand.addWidget(title)
 
@@ -78,8 +96,7 @@ class CommandBar(QFrame):
         sub.setObjectName("brand-sub")
         brand.addWidget(sub)
 
-        brand_wrap = QFrame()
-        brand_wrap.setLayout(brand)
+        brand_h.addWidget(brand_text)
         layout.addWidget(brand_wrap)
 
         layout.addStretch(1)
@@ -95,8 +112,11 @@ class CommandBar(QFrame):
 
         self.btn_start = QPushButton("Start Scan")
         self.btn_start.setObjectName("brutal-primary")
+        self.btn_start.setEnabled(False)
+        self.btn_start.setToolTip("Add a folder or files first")
         self.btn_start.clicked.connect(self.start_clicked.emit)
         layout.addWidget(self.btn_start)
+        self._can_start = False
 
         self.btn_stop = QPushButton("Stop")
         self.btn_stop.setEnabled(False)
@@ -108,6 +128,13 @@ class CommandBar(QFrame):
         self.btn_export.clicked.connect(self.export_clicked.emit)
         layout.addWidget(self.btn_export)
 
+        self.btn_delete = QPushButton("\U0001F5D1  Delete")
+        self.btn_delete.setObjectName("brutal-danger")
+        self.btn_delete.setEnabled(False)
+        self.btn_delete.setToolTip("Run a scan first")
+        self.btn_delete.clicked.connect(self.delete_clicked.emit)
+        layout.addWidget(self.btn_delete)
+
         # Status -----------------------------------------------------------
         self.status = StatusIndicator()
         layout.addWidget(self.status)
@@ -118,5 +145,22 @@ class CommandBar(QFrame):
         self.status.set_status(status)
 
     def set_scanning(self, scanning: bool) -> None:
-        self.btn_start.setEnabled(not scanning)
+        self.btn_start.setEnabled(self._can_start and not scanning)
         self.btn_stop.setEnabled(scanning)
+
+    def set_can_start(self, can_start: bool) -> None:
+        self._can_start = can_start
+        self.btn_start.setEnabled(can_start)
+        self.btn_start.setToolTip(
+            "" if can_start else "Add a folder or files first"
+        )
+
+    def set_can_delete(self, can_delete: bool, count: int = 0) -> None:
+        """Enable the delete button when at least one REJECT is in the table."""
+        self.btn_delete.setEnabled(can_delete)
+        if can_delete:
+            self.btn_delete.setToolTip(
+                f"Move {count} rejected file(s) to Recycle Bin"
+            )
+        else:
+            self.btn_delete.setToolTip("Run a scan first")
