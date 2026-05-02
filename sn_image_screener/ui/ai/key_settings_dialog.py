@@ -91,7 +91,7 @@ class AddKeyDialog(QDialog):
     DEFAULT_MODELS = {
         ProviderName.GEMINI: "gemini-1.5-flash",
         ProviderName.OPENAI: "gpt-4o-mini",
-        ProviderName.GROQ: "llama-3.2-11b-vision-preview",
+        ProviderName.GROQ: "meta-llama/llama-4-scout-17b-16e-instruct",
     }
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:

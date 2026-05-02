@@ -5,10 +5,10 @@ Groq exposes an OpenAI-compatible Chat Completions endpoint at::
     POST https://api.groq.com/openai/v1/chat/completions
 
 so the wire format mirrors :class:`OpenAIProvider`. The only meaningful
-differences are the host URL and the default vision model. Llava and
-Llama-3.2-vision are the two image-capable model families currently
-hosted on Groq; we default to ``llama-3.2-11b-vision-preview`` and let
-the user override per key.
+differences are the host URL and the default vision model. The vision
+roster on Groq evolves frequently (older Llama-3.2-vision models have
+been deprecated); ``meta-llama/llama-4-scout-17b-16e-instruct`` is the
+current vision-capable default. Override per key in Settings.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ class GroqProvider(Provider):
         *,
         timeout: int = 60,
     ) -> ProviderResponse:
-        model = key.model or "llama-3.2-11b-vision-preview"
+        model = key.model or "meta-llama/llama-4-scout-17b-16e-instruct"
         b64 = base64.b64encode(image.data).decode("ascii")
         data_url = f"data:{image.mime};base64,{b64}"
 
