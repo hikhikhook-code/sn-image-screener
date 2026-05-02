@@ -119,6 +119,11 @@ class MainWindow(QMainWindow):
         self.key_manager = KeyManager()
         self.ai_panel = AIPanel(self.key_manager)
         self.ai_panel.log_line.connect(self._on_ai_log)
+        # Mirror the Source toolbar so users can add folders / files and
+        # clear the queue from inside the AI tab too.
+        self.ai_panel.add_folder_requested.connect(self.add_folder)
+        self.ai_panel.add_files_requested.connect(self.add_files)
+        self.ai_panel.clear_sources_requested.connect(self.clear_sources)
 
         # ---- Tab container --------------------------------------------
         self.tabs = QTabWidget()

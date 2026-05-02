@@ -59,6 +59,18 @@ QMainWindow, QWidget#root {{
     background: {BG};
 }}
 
+/* Dialogs & message boxes — keep them on the light palette so user
+   forms (API keys, delete confirmation, etc.) stay readable when the
+   host OS is in dark mode. */
+QDialog, QMessageBox {{
+    background: {BG};
+    color: {INK};
+}}
+
+QDialog QLabel, QMessageBox QLabel {{
+    color: {INK};
+}}
+
 QFrame#brutal-card {{
     background: {SURFACE};
     border: 2px solid {INK};
@@ -260,7 +272,7 @@ QPushButton#group-toggle:checked {{
 /* Input fields ---------------------------------------------------------- */
 
 QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {{
-    background: {SURFACE};
+    background-color: {SURFACE};
     color: {INK};
     border: 2px solid {INK};
     padding: 5px 8px;
@@ -270,8 +282,15 @@ QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {{
     font-size: 12px;
 }}
 
+QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled,
+QComboBox:disabled {{
+    background-color: {SURFACE_ALT};
+    color: {INK_MUTED};
+}}
+
 QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{
-    background: {LIME};
+    background-color: {LIME};
+    color: {INK};
 }}
 
 QComboBox::drop-down {{
@@ -346,6 +365,13 @@ QHeaderView::section:last {{
 QTableWidget::item {{
     padding: 6px 8px;
     border-bottom: 1px solid {LINE_SOFT};
+    color: {INK};
+    background-color: {SURFACE};
+}}
+
+QTableWidget::item:selected {{
+    background-color: {LIME};
+    color: {INK};
 }}
 
 /* Scrollbars ------------------------------------------------------------ */

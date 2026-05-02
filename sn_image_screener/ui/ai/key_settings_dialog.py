@@ -97,7 +97,19 @@ class AddKeyDialog(QDialog):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Add API Key")
-        self.setMinimumWidth(440)
+        self.setMinimumWidth(480)
+        # Defensive — make sure this dialog stays on the light palette
+        # even when the host OS is in dark mode.
+        self.setStyleSheet(
+            "QDialog{background:#F4F1EA; color:#111111;}"
+            "QLabel{color:#111111;}"
+            "QLineEdit{background:#FFFFFF; color:#111111;"
+            " border:2px solid #111111; padding:6px 8px;"
+            " font-family:'JetBrains Mono', Consolas, monospace;}"
+            "QLineEdit:focus{background:#D6EE2C;}"
+            "QComboBox{background:#FFFFFF; color:#111111;"
+            " border:2px solid #111111; padding:5px 8px;}"
+        )
 
         form = QFormLayout(self)
 
@@ -326,7 +338,8 @@ class KeySettingsDialog(QDialog):
             if not entry.key:
                 QMessageBox.warning(
                     self, "Empty key",
-                    f"Row {row + 1}: API key is empty. Fill it in or delete the row.",
+                    f"Row {row + 1}: API key is empty. "
+                    "Fill it in or delete the row.",
                 )
                 return
             new_keys.append(entry)
@@ -337,7 +350,19 @@ class KeySettingsDialog(QDialog):
         for k in new_keys:
             self.km._keys.append(k)
         self.km._sort_in_place()  # noqa: SLF001
-        self.km.save()
+        try:
+            self.km.save()
+        except OSError as exc:
+            QMessageBox.critical(
+                self, "Save failed",
+                f"Could not write API keys to disk:\n\n{exc}\n\n"
+                f"Path: {self.km.path}",
+            )
+            return
+        QMessageBox.information(
+            self, "Saved",
+            f"Saved {len(new_keys)} API key(s) to:\n{self.km.path}",
+        )
         self.accept()
 
     # ------------------------------------------------------------------
@@ -352,7 +377,8 @@ class KeySettingsDialog(QDialog):
         if self.table.rowCount() >= MAX_KEYS:
             QMessageBox.warning(
                 self, "Limit reached",
-                f"Already at {MAX_KEYS} keys. Delete one before adding another.",
+                f"Already at {MAX_KEYS} keys. "
+                "Delete one before adding another.",
             )
             return
         dlg = AddKeyDialog(self)
@@ -360,8 +386,15 @@ class KeySettingsDialog(QDialog):
             return
         entry = dlg.entry()
         if not entry.key:
+            QMessageBox.warning(
+                self, "Empty key",
+                "API key was empty — nothing was added.",
+            )
             return
         self._append_row(entry)
+        new_row = self.table.rowCount() - 1
+        self.table.scrollToItem(self.table.item(new_row, 0))
+        self.table.setCurrentCell(new_row, self.COL_LABEL)
         self.lbl_count.setText(f"{self.table.rowCount()} / {MAX_KEYS} keys")
 
     def _on_delete(self, row: int) -> None:

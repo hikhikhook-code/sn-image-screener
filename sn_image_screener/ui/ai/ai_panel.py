@@ -23,8 +23,8 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
-    QMessageBox, QProgressBar, QPushButton, QRadioButton, QSizePolicy,
-    QSpinBox, QSplitter, QVBoxLayout, QWidget,
+    QMessageBox, QProgressBar, QPushButton, QRadioButton, QScrollArea,
+    QSizePolicy, QSpinBox, QSplitter, QVBoxLayout, QWidget,
 )
 
 from ...services.ai import KeyManager
@@ -49,6 +49,9 @@ class AIPanel(QWidget):
     """The AI Anatomy Inspector tab widget."""
 
     log_line = Signal(str)
+    add_folder_requested = Signal()
+    add_files_requested = Signal()
+    clear_sources_requested = Signal()
 
     def __init__(
         self,
@@ -76,15 +79,23 @@ class AIPanel(QWidget):
         splitter.addWidget(self._build_centre_gallery())
         splitter.addWidget(self._build_right_preview())
         splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 2)
-        splitter.setStretchFactor(2, 2)
-        splitter.setSizes([300, 540, 540])
+        splitter.setStretchFactor(1, 1)
+        splitter.setStretchFactor(2, 4)   # preview gets the lion's share
+        splitter.setSizes([300, 320, 880])
         root.addWidget(splitter)
 
     def _build_left_controls(self) -> QWidget:
+        # The control list is taller than typical app windows, so wrap
+        # it in a scroll area to guarantee every section stays reachable
+        # on small screens.
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setMaximumWidth(360)
+        scroll.setMinimumWidth(280)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+
         w = QWidget()
-        w.setMaximumWidth(360)
-        w.setMinimumWidth(280)
         v = QVBoxLayout(w)
         v.setContentsMargins(14, 14, 14, 14)
         v.setSpacing(10)
@@ -103,8 +114,37 @@ class AIPanel(QWidget):
             "Quality tab still handles blur / noise / exposure locally."
         )
         sub.setWordWrap(True)
-        sub.setStyleSheet("color:#555555;")
+        sub.setStyleSheet("color:#555555; font-size:11px;")
+        sp = sub.sizePolicy()
+        sp.setHeightForWidth(True)
+        sub.setSizePolicy(sp)
         v.addWidget(sub)
+
+        # Source toolbar (mirrors the Technical Quality tab) ----------
+        v.addWidget(_section_label("SOURCE"))
+        src_row = QHBoxLayout()
+        src_row.setSpacing(6)
+        self.btn_add_folder = QPushButton("+ FOLDER")
+        self.btn_add_folder.clicked.connect(self.add_folder_requested.emit)
+        src_row.addWidget(self.btn_add_folder)
+        self.btn_add_files = QPushButton("+ FILES")
+        self.btn_add_files.clicked.connect(self.add_files_requested.emit)
+        src_row.addWidget(self.btn_add_files)
+        v.addLayout(src_row)
+
+        clr_row = QHBoxLayout()
+        self.btn_clear_sources = QPushButton("CLEAR SOURCES")
+        self.btn_clear_sources.clicked.connect(
+            self.clear_sources_requested.emit
+        )
+        clr_row.addWidget(self.btn_clear_sources)
+        clr_row.addStretch(1)
+        v.addLayout(clr_row)
+
+        self.lbl_source_count = QLabel("— no sources added —")
+        self.lbl_source_count.setStyleSheet("color:#777777; font-size:11px;")
+        self.lbl_source_count.setWordWrap(True)
+        v.addWidget(self.lbl_source_count)
 
         v.addWidget(_section_label("SCAN DEPTH"))
         self.rb_depth: Dict[ScanDepth, QRadioButton] = {}
@@ -120,6 +160,9 @@ class AIPanel(QWidget):
         v.addWidget(_section_label("API KEYS"))
         self.lbl_keys = QLabel()
         self.lbl_keys.setWordWrap(True)
+        sp = self.lbl_keys.sizePolicy()
+        sp.setHeightForWidth(True)
+        self.lbl_keys.setSizePolicy(sp)
         v.addWidget(self.lbl_keys)
         self.btn_keys = QPushButton("MANAGE API KEYS")
         self.btn_keys.clicked.connect(self._on_manage_keys)
@@ -147,6 +190,9 @@ class AIPanel(QWidget):
         )
         self.lbl_workers_hint.setWordWrap(True)
         self.lbl_workers_hint.setStyleSheet("color:#777777; font-size:11px;")
+        sp = self.lbl_workers_hint.sizePolicy()
+        sp.setHeightForWidth(True)
+        self.lbl_workers_hint.setSizePolicy(sp)
         v.addWidget(self.lbl_workers_hint)
 
         v.addWidget(_section_label("RUN"))
@@ -179,7 +225,8 @@ class AIPanel(QWidget):
         v.addStretch(1)
 
         self._refresh_keys_label()
-        return w
+        scroll.setWidget(w)
+        return scroll
 
     def _build_centre_gallery(self) -> QWidget:
         w = QWidget()
@@ -210,18 +257,31 @@ class AIPanel(QWidget):
         return w
 
     def _build_right_preview(self) -> QWidget:
+        """Marker on top (landscape), compact report below.
+
+        Stacking the marker and report vertically lets the marker view
+        use the full panel width — natural for landscape photos and
+        wide rendered scenes.
+        """
         w = QWidget()
-        h = QHBoxLayout(w)
-        h.setContentsMargins(0, 0, 0, 0)
-        h.setSpacing(0)
+        v = QVBoxLayout(w)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(0)
 
         self.marker = MarkerView()
         self.report = ReportPanel()
         self.marker.region_clicked.connect(self.report.highlight)
         self.report.region_clicked.connect(self.marker.set_highlight)
 
-        h.addWidget(self.marker, 3)
-        h.addWidget(self.report, 2)
+        # Inner splitter so the user can drag the divider if they want
+        # more report or more image.
+        inner = QSplitter(Qt.Orientation.Vertical)
+        inner.addWidget(self.marker)
+        inner.addWidget(self.report)
+        inner.setStretchFactor(0, 5)   # image dominates
+        inner.setStretchFactor(1, 2)
+        inner.setSizes([520, 240])
+        v.addWidget(inner)
         return w
 
     # ------------------------------------------------------------------
@@ -236,6 +296,11 @@ class AIPanel(QWidget):
         self._results = {p.name: existing[p.name] for p in files
                          if p.name in existing}
         self._refresh_queue()
+        n = len(self._files)
+        if n == 0:
+            self.lbl_source_count.setText("— no sources added —")
+        else:
+            self.lbl_source_count.setText(f"{n} file(s) loaded")
 
     def results(self) -> Dict[str, AnatomyResult]:
         """All AI results so far, keyed by file name."""
