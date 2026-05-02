@@ -73,10 +73,11 @@ class MainWindow(QMainWindow):
         self.h_split.setHandleWidth(2)
         self.h_split.setChildrenCollapsible(False)
 
-        # Left
+        # Left — Add Folder / Add Files signals were removed from
+        # ControlPanel because the same actions live in the always-
+        # visible top command bar. Only Clear Sources and Start are
+        # surfaced here now.
         self.control_panel = ControlPanel()
-        self.control_panel.add_folder_clicked.connect(self.add_folder)
-        self.control_panel.add_files_clicked.connect(self.add_files)
         self.control_panel.clear_sources_clicked.connect(self.clear_sources)
         self.control_panel.start_clicked.connect(self.start_scan)
         self.h_split.addWidget(self.control_panel)
@@ -120,11 +121,6 @@ class MainWindow(QMainWindow):
         self.key_manager = KeyManager()
         self.ai_panel = AIPanel(self.key_manager)
         self.ai_panel.log_line.connect(self._on_ai_log)
-        # Mirror the Source toolbar so users can add folders / files and
-        # clear the queue from inside the AI tab too.
-        self.ai_panel.add_folder_requested.connect(self.add_folder)
-        self.ai_panel.add_files_requested.connect(self.add_files)
-        self.ai_panel.clear_sources_requested.connect(self.clear_sources)
 
         # ---- Mode pages (Technical Quality / AI Anatomy Inspector) ----
         # The two former tab bodies become pages of a QStackedWidget so
@@ -138,8 +134,10 @@ class MainWindow(QMainWindow):
         self.nav_rail.add_mode(
             "TECHNICAL QUALITY", technical_quality_icon()
         )
+        # Short label avoids clipping in the rail; the AI panel itself
+        # still calls itself "AI Anatomy Inspector" in its body header.
         self.nav_rail.add_mode(
-            "AI ANATOMY INSPECTOR", ai_anatomy_icon()
+            "AI INSPECTOR", ai_anatomy_icon()
         )
         self.nav_rail.mode_changed.connect(self._on_mode_changed)
 

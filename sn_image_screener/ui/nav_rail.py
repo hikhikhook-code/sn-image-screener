@@ -41,7 +41,7 @@ from .icons import logo_pixmap
 # leaves room for a 40px square icon button + 2px frame border, expanded
 # is wide enough for "AI ANATOMY INSPECTOR" in the body font.
 RAIL_WIDTH_COLLAPSED = 64
-RAIL_WIDTH_EXPANDED = 220
+RAIL_WIDTH_EXPANDED = 232  # widened so labels never clip on default fonts
 
 # Square size of every rail button (and therefore the painted icons).
 BTN_SIZE = 44

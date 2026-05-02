@@ -51,8 +51,6 @@ def _hint(text: str) -> QLabel:
 class ControlPanel(QFrame):
     """Left side panel — scrollable settings on top, sticky START SCAN at the bottom."""
 
-    add_folder_clicked = Signal()
-    add_files_clicked  = Signal()
     clear_sources_clicked = Signal()
     start_clicked      = Signal()
     output_changed     = Signal(str)
@@ -86,21 +84,20 @@ class ControlPanel(QFrame):
         layout.setSpacing(12)
 
         # --- Source -------------------------------------------------------
+        # The Add Folder / Add Files actions used to live here too, but
+        # they are already permanently visible in the top command bar.
+        # Keeping a copy in this scrollable side panel was redundant and
+        # forced users to scroll to find them, so the panel now only
+        # *displays* the loaded sources and offers a Clear action.
         self.grp_source = CollapsibleGroup("Source", expanded=True)
         layout.addWidget(self.grp_source)
 
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(8)
-        self.btn_add_folder = QPushButton("+ FOLDER")
-        self.btn_add_folder.setObjectName("brutal-primary")
-        self.btn_add_folder.clicked.connect(self.add_folder_clicked.emit)
-        btn_row.addWidget(self.btn_add_folder)
-
-        self.btn_add_files = QPushButton("+ FILES")
-        self.btn_add_files.setObjectName("brutal-secondary")
-        self.btn_add_files.clicked.connect(self.add_files_clicked.emit)
-        btn_row.addWidget(self.btn_add_files)
-        self.grp_source.add_layout(btn_row)
+        self.lbl_source_hint = label(
+            "Use Add Folder / Add Files in the top bar to add sources.",
+            soft=True, size=10,
+        )
+        self.lbl_source_hint.setWordWrap(True)
+        self.grp_source.add(self.lbl_source_hint)
 
         self.lst_sources = QListWidget()
         self.lst_sources.setStyleSheet(

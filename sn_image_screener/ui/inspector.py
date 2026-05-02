@@ -8,11 +8,11 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (
     QFrame, QGridLayout, QHBoxLayout, QLabel, QScrollArea, QSizePolicy,
-    QVBoxLayout, QWidget,
+    QStackedLayout, QVBoxLayout, QWidget,
 )
 
 from . import theme
-from .widgets import IssueChip, StatusTag, label, make_card
+from .widgets import EmptyState, IssueChip, StatusTag, label, make_card
 from ..core.scanner import ScanItem
 
 
@@ -66,6 +66,16 @@ class Inspector(QFrame):
         outer.addLayout(hdr)
 
         # Preview --------------------------------------------------------
+        # The preview slot stacks the actual image label and an empty-
+        # state placeholder so the inspector looks intentional, not
+        # broken, before the user has selected a row.
+        preview_host = QFrame()
+        preview_host.setMinimumHeight(220)
+        preview_host.setStyleSheet("background:transparent;")
+        self._preview_stack = QStackedLayout(preview_host)
+        self._preview_stack.setStackingMode(QStackedLayout.StackingMode.StackOne)
+        self._preview_stack.setContentsMargins(0, 0, 0, 0)
+
         self.preview = QLabel()
         self.preview.setMinimumHeight(220)
         self.preview.setAlignment(Qt.AlignCenter)
@@ -73,8 +83,18 @@ class Inspector(QFrame):
             f"background:{theme.SURFACE_ALT};"
             f"border:2px solid {theme.INK};"
         )
-        self.preview.setText("— SELECT AN IMAGE —")
-        outer.addWidget(self.preview)
+        self._preview_stack.addWidget(self.preview)
+
+        self._preview_empty = EmptyState(
+            title="NO IMAGE SELECTED",
+            body=(
+                "Pick a row from the results table on the left to preview "
+                "the image and its metrics here."
+            ),
+        )
+        self._preview_stack.addWidget(self._preview_empty)
+        self._preview_stack.setCurrentIndex(1)
+        outer.addWidget(preview_host)
 
         # Filename + headline numbers -----------------------------------
         self.lbl_name = label("—", bold=True, size=12)
@@ -141,6 +161,7 @@ class Inspector(QFrame):
             )
             self.preview.setPixmap(scaled)
             self.preview.setText("")
+        self._preview_stack.setCurrentIndex(0)
 
         # Header tag + filename -----------------------------------------
         self.tag.set_status(item.status.value)
@@ -173,7 +194,8 @@ class Inspector(QFrame):
 
     def _clear(self) -> None:
         self.preview.setPixmap(QPixmap())
-        self.preview.setText("— SELECT AN IMAGE —")
+        self.preview.setText("")
+        self._preview_stack.setCurrentIndex(1)
         self.tag.set_status("PASS")
         self.lbl_name.setText("—")
         self.lbl_dim.setText("—")
