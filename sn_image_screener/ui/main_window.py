@@ -26,6 +26,7 @@ from .control_panel import ControlPanel
 from .inspector import Inspector
 from .log_panel import LogPanel
 from .results_table import ResultsTable
+from .toast import Toaster
 from .widgets import HardDivider, label
 from .workers import ScanWorker
 
@@ -125,6 +126,12 @@ class MainWindow(QMainWindow):
         self.log_panel.info(f"{__app_name__} v{__version__} ready")
         self.log_panel.info("Add a folder or files, choose a preset, then Start Scan")
 
+        # Toast notifications (top-right corner)
+        self.toaster = Toaster(self)
+        self.control_panel.cmb_preset.currentTextChanged.connect(
+            lambda name: self.toaster.info("Preset", f"Switched to {name}")
+        )
+
     # =====================================================================
     # Layout helpers
     # =====================================================================
@@ -202,6 +209,7 @@ class MainWindow(QMainWindow):
         self.control_panel.update_source_summary(self._folders, self._files)
         self._refresh_source_state()
         self.log_panel.info(f"Folder added · {p}")
+        self.toaster.ok("Folder added", p.name or str(p))
 
     def add_files(self) -> None:
         files, _ = QFileDialog.getOpenFileNames(
@@ -219,6 +227,8 @@ class MainWindow(QMainWindow):
         self.control_panel.update_source_summary(self._folders, self._files)
         self._refresh_source_state()
         self.log_panel.info(f"{added} file(s) added")
+        if added:
+            self.toaster.ok("Files added", f"{added} image(s) queued")
 
     def clear_sources(self) -> None:
         self._folders.clear()
@@ -226,6 +236,7 @@ class MainWindow(QMainWindow):
         self.control_panel.update_source_summary(self._folders, self._files)
         self._refresh_source_state()
         self.log_panel.info("Sources cleared")
+        self.toaster.info("Sources cleared")
 
     def _refresh_source_state(self) -> None:
         """Mirror the disabled-when-empty state to the command bar START button."""
@@ -242,9 +253,9 @@ class MainWindow(QMainWindow):
 
         paths = collect_paths(self._folders, self._files)
         if not paths:
-            QMessageBox.warning(
-                self, __app_name__,
-                "No images to scan. Use Add Folder or Add Files first.",
+            self.toaster.warn(
+                "Nothing to scan",
+                "Add a folder or files first",
             )
             return
 
@@ -262,6 +273,10 @@ class MainWindow(QMainWindow):
             f"Scanning {len(paths)} file(s) — preset {self.control_panel.cmb_preset.currentText()}"
         )
         self.log_panel.info(f"Scan started · {len(paths)} file(s) · preset {self.control_panel.cmb_preset.currentText()}")
+        self.toaster.info(
+            "Scan started",
+            f"{len(paths)} image(s) · preset {self.control_panel.cmb_preset.currentText()}",
+        )
 
         # Spin up worker thread
         self._thread = QThread(self)
@@ -282,6 +297,7 @@ class MainWindow(QMainWindow):
         self._worker.stop()
         self.command_bar.set_status("STOPPED")
         self.log_panel.warn("Stop requested…")
+        self.toaster.warn("Stop requested", "Finishing the current image…")
 
     # ----- worker signals -----
 
@@ -316,6 +332,10 @@ class MainWindow(QMainWindow):
             self.command_bar.set_status("STOPPED")
             self.log_panel.warn("Scan stopped.")
             self.statusBar().showMessage("Scan stopped.")
+            self.toaster.warn(
+                "Scan stopped",
+                f"PASS {self._counts['PASS']}  ·  REVIEW {self._counts['REVIEW']}  ·  REJECT {self._counts['REJECT']}",
+            )
         else:
             self.command_bar.set_status("COMPLETED")
             self.log_panel.ok(
@@ -326,6 +346,10 @@ class MainWindow(QMainWindow):
                 f"ERROR {self._counts['ERROR']}"
             )
             self.statusBar().showMessage("Scan complete.")
+            self.toaster.ok(
+                "Scan complete",
+                f"PASS {self._counts['PASS']}  ·  REVIEW {self._counts['REVIEW']}  ·  REJECT {self._counts['REJECT']}",
+            )
         self.command_bar.set_scanning(False)
 
     def _cleanup_worker(self) -> None:
@@ -355,9 +379,7 @@ class MainWindow(QMainWindow):
     def export_results(self) -> None:
         items = self.results.items()
         if not items:
-            QMessageBox.information(
-                self, __app_name__, "Nothing to export — run a scan first.",
-            )
+            self.toaster.warn("Nothing to export", "Run a scan first")
             return
 
         out = self.control_panel.output_dir()
@@ -394,9 +416,10 @@ class MainWindow(QMainWindow):
                 self.log_panel.ok(f"Copied {len(written)} file(s) → {target}")
 
             self.statusBar().showMessage(f"Export complete · {out}")
+            self.toaster.ok("Export complete", str(out))
         except Exception as exc:  # noqa: BLE001
             self.log_panel.err(f"Export failed · {exc}")
-            QMessageBox.critical(self, __app_name__, f"Export failed:\n{exc}")
+            self.toaster.err("Export failed", str(exc))
             return
 
     # =====================================================================
