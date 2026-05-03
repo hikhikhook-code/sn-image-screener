@@ -10,10 +10,35 @@ import csv
 import json
 import shutil
 from pathlib import Path
-from typing import Iterable, List, Mapping, Optional
+from typing import Dict, Iterable, List, Mapping, Optional
 
 from .classifier import Status
 from .scanner import ScanItem
+
+
+# Status → bucket-folder name mapping. Keep these stable: end-users may
+# build automation around the resulting folder names.
+BUCKET_PASS = "pass"
+BUCKET_REVIEW = "review"
+BUCKET_FAIL = "fail"
+BUCKET_ERROR = "error"
+
+_TOOL_A_BUCKET = {
+    Status.PASS:   BUCKET_PASS,
+    Status.REVIEW: BUCKET_REVIEW,
+    Status.REJECT: BUCKET_FAIL,
+    Status.ERROR:  BUCKET_ERROR,
+}
+
+# AI :class:`AIStatus` values (as ``str``) → bucket. We avoid importing the
+# enum to keep this module Qt-/AI-agnostic; the AI status is read by its
+# ``.value`` attribute when available.
+_AI_BUCKET = {
+    "pass":   BUCKET_PASS,
+    "review": BUCKET_REVIEW,
+    "fail":   BUCKET_FAIL,
+    "error":  BUCKET_ERROR,
+}
 
 
 REPORT_FIELDS = [
@@ -239,3 +264,113 @@ def copy_by_status(
         written.append(dest)
 
     return written
+
+
+# ---------------------------------------------------------------------------
+# Auto-sort: move (or copy) files into pass / review / fail / error buckets.
+# ---------------------------------------------------------------------------
+
+
+def _resolve_bucket(item: ScanItem, ai_results: Optional[Mapping[str, object]]) -> Optional[str]:
+    """Return the bucket folder name for this item.
+
+    AI Inspector verdict (when present) takes precedence over the local
+    Tool A verdict — the AI side encodes the user's primary intent
+    ("did this AI portrait pass?"). Fall back to Tool A status for items
+    that were never run through AI Inspector.
+    """
+    if ai_results:
+        ai_r = ai_results.get(item.path.name)
+        status_obj = getattr(ai_r, "status", None) if ai_r is not None else None
+        status_value = getattr(status_obj, "value", None)
+        if isinstance(status_value, str):
+            bucket = _AI_BUCKET.get(status_value)
+            if bucket is not None:
+                return bucket
+    return _TOOL_A_BUCKET.get(item.status)
+
+
+def sort_results_into_buckets(
+    items: Iterable[ScanItem],
+    target_dir: Path,
+    *,
+    ai_results: Optional[Mapping[str, object]] = None,
+    move: bool = True,
+) -> Dict[str, List[Path]]:
+    """Sort scanned files into ``pass`` / ``review`` / ``fail`` / ``error``
+    subfolders inside ``target_dir`` based on their verdict.
+
+    Parameters
+    ----------
+    items
+        Iterable of :class:`ScanItem`. Each item's ``path`` must point at
+        the source image on disk.
+    target_dir
+        Destination root. Bucket subfolders are created on demand;
+        empty buckets do **not** create empty folders.
+    ai_results
+        Optional mapping ``filename → AnatomyResult`` from the AI
+        Inspector. When provided, the AI verdict outranks the local
+        Tool A verdict. Items not present in this map fall back to
+        Tool A's ``ScanItem.status``.
+    move
+        ``True`` (default) moves the source file into the bucket via
+        :func:`shutil.move`. ``False`` copies via :func:`shutil.copy2`,
+        leaving the source untouched.
+
+    Returns
+    -------
+    Dict[str, List[Path]]
+        Mapping ``bucket_name → list of destination Paths``. All four
+        buckets are present in the return dict even when empty so that
+        callers can reliably introspect counts.
+
+    Notes
+    -----
+    * Filename collisions inside a bucket are resolved by appending
+      ``" (N)"`` before the extension, so a destination file is never
+      silently overwritten.
+    * Items whose source path no longer exists (e.g. moved by a previous
+      run, or the user deleted them out-of-band) are skipped silently.
+    * The ``error`` bucket receives any item that failed to scan
+      (Tool A ``ERROR`` or AI ``error`` status), so the user can
+      inspect them without losing the original files.
+    """
+    target_dir = Path(target_dir)
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    buckets: Dict[str, List[Path]] = {
+        BUCKET_PASS: [],
+        BUCKET_REVIEW: [],
+        BUCKET_FAIL: [],
+        BUCKET_ERROR: [],
+    }
+
+    op = shutil.move if move else shutil.copy2
+
+    for item in items:
+        bucket_name = _resolve_bucket(item, ai_results)
+        if bucket_name is None:
+            continue
+
+        src = Path(item.path)
+        if not src.exists():
+            # Source was removed (e.g. earlier auto-sort run on the same
+            # session). Skip rather than blowing up the whole export.
+            continue
+
+        b_dir = target_dir / bucket_name
+        b_dir.mkdir(parents=True, exist_ok=True)
+
+        dest = b_dir / src.name
+        if dest.exists():
+            stem, suffix = dest.stem, dest.suffix
+            n = 1
+            while dest.exists():
+                dest = b_dir / f"{stem} ({n}){suffix}"
+                n += 1
+
+        op(str(src), str(dest))
+        buckets[bucket_name].append(dest)
+
+    return buckets
