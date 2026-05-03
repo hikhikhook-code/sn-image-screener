@@ -38,6 +38,7 @@ from .inspector import Inspector
 from .log_panel import LogPanel
 from .nav_rail import NavRail, ai_anatomy_icon, technical_quality_icon
 from .results_table import ResultsTable
+from .settings_panel import SettingsPanel, settings_icon
 from .technical_report_panel import TechnicalReportPanel
 from .toast import Toaster
 from .workers import ScanWorker
@@ -154,19 +155,36 @@ class MainWindow(QMainWindow):
         self.key_manager = KeyManager()
         self.ai_panel = AIPanel(self.key_manager)
         self.ai_panel.log_line.connect(self._on_ai_log)
+        # The AI panel emits this when its in-line "open settings" link
+        # is clicked — switch to the Settings rail entry.
+        self.ai_panel.open_settings_requested.connect(
+            lambda: self.nav_rail.set_active(2)
+        )
 
-        # ---- Mode pages (Technical Quality / AI Anatomy Inspector) ----
-        # The two former tab bodies become pages of a QStackedWidget so
-        # the new collapsible left rail can swap between them.
+        # ---- Build the Settings tab -----------------------------------
+        # Surfaces the API-key card UI as a first-class page in the
+        # rail, replacing the legacy table-style dialog.
+        self.settings_panel = SettingsPanel(self.key_manager)
+        # Whenever a key is added/edited/toggled/deleted from Settings,
+        # refresh the AI panel's "Run" enabled state and the keys label
+        # so it picks up the change without a restart.
+        self.settings_panel.keys_changed.connect(
+            self.ai_panel.refresh_keys
+        )
+
+        # ---- Mode pages (Technical / AI / Settings) -------------------
+        # The three tab bodies become pages of a QStackedWidget so the
+        # collapsible left rail can swap between them.
         self.mode_stack = QStackedWidget()
         self.mode_stack.addWidget(self.h_split)
         self.mode_stack.addWidget(self.ai_panel)
+        self.mode_stack.addWidget(self.settings_panel)
 
         # ---- Collapsible left navigation rail -------------------------
-        # Short labels ("TECHNICAL", "AI INSPECTOR") render next to the
-        # icon when the rail is expanded; the long-form name appears as
-        # a tooltip on hover (and is also what users read when the rail
-        # is collapsed).
+        # Short labels ("TECHNICAL", "AI INSPECTOR", "SETTINGS") render
+        # next to the icon when the rail is expanded; the long-form
+        # name appears as a tooltip on hover (and is also what users
+        # read when the rail is collapsed).
         self.nav_rail = NavRail()
         self.nav_rail.add_mode(
             "TECHNICAL",
@@ -177,6 +195,11 @@ class MainWindow(QMainWindow):
             "AI INSPECTOR",
             ai_anatomy_icon(),
             tooltip="AI Anatomy Inspector",
+        )
+        self.nav_rail.add_mode(
+            "SETTINGS",
+            settings_icon(),
+            tooltip="Settings",
         )
         self.nav_rail.mode_changed.connect(self._on_mode_changed)
 

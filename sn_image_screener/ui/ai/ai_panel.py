@@ -33,7 +33,6 @@ from ...services.ai.types import (
 )
 from ..widgets import CollapsibleGroup, EmptyState
 from .inspection_worker import InspectionWorker
-from .key_settings_dialog import KeySettingsDialog
 from .marker_view import MarkerView
 from .report_panel import ReportPanel
 
@@ -66,6 +65,10 @@ class AIPanel(QWidget):
     """The AI Anatomy Inspector tab widget."""
 
     log_line = Signal(str)
+    # Emitted when the user clicks one of the in-panel "OPEN SETTINGS"
+    # affordances — the main window listens to this and switches the
+    # left rail over to the Settings page.
+    open_settings_requested = Signal()
 
     def __init__(
         self,
@@ -79,6 +82,9 @@ class AIPanel(QWidget):
         self._worker: Optional[InspectionWorker] = None
         self._build()
         self._update_run_state()
+        # When keys are mutated through the Settings page (or any
+        # other code path), refresh the keys label and the Run button.
+        self.km.add_listener(self.refresh_keys)
 
     # ------------------------------------------------------------------
     # Build UI
@@ -199,6 +205,21 @@ class AIPanel(QWidget):
         self.lbl_run_reason.hide()
         grp_exec.add(self.lbl_run_reason)
 
+        # Inline "open settings" affordance — shown alongside the
+        # disabled-reason message when the missing precondition is an
+        # API key. Replaces the old "MANAGE API KEYS" popup button.
+        self.btn_open_settings_inline = QPushButton("OPEN SETTINGS  \u25B6")
+        self.btn_open_settings_inline.setStyleSheet(
+            "QPushButton{background:#FFC700; color:#111111;"
+            " border:2px solid #111111; font-weight:900; letter-spacing:1.5px;}"
+            "QPushButton:hover{background:#111111; color:#FFC700;}"
+        )
+        self.btn_open_settings_inline.clicked.connect(
+            self.open_settings_requested.emit
+        )
+        self.btn_open_settings_inline.hide()
+        grp_exec.add(self.btn_open_settings_inline)
+
         self.btn_stop = QPushButton("STOP")
         self.btn_stop.clicked.connect(self._on_stop)
         self.btn_stop.setEnabled(False)
@@ -227,8 +248,11 @@ class AIPanel(QWidget):
         self.lbl_keys = QLabel()
         self.lbl_keys.setWordWrap(True)
         grp_adv.add(self.lbl_keys)
-        self.btn_keys = QPushButton("MANAGE API KEYS")
-        self.btn_keys.clicked.connect(self._on_manage_keys)
+        # API keys live on the Settings tab now; this button is kept as
+        # a quick shortcut from the AI panel rather than the legacy
+        # popup, but the source of truth is the same Settings page.
+        self.btn_keys = QPushButton("OPEN SETTINGS  \u25B6")
+        self.btn_keys.clicked.connect(self.open_settings_requested.emit)
         grp_adv.add(self.btn_keys)
 
         workers_lbl = QLabel("Parallel workers")
@@ -424,13 +448,18 @@ class AIPanel(QWidget):
         if total == 0:
             self.lbl_keys.setText(
                 "<b>No keys configured.</b> Add a Gemini, OpenAI, or Groq "
-                "key in Manage API Keys."
+                "key in the Settings tab."
             )
         else:
             self.lbl_keys.setText(
                 f"{len(usable)} usable · {total} total"
             )
         self._update_run_state()
+
+    # Public alias — used by the Settings page (and the KeyManager
+    # listener) to refresh the panel after any key change.
+    def refresh_keys(self) -> None:
+        self._refresh_keys_label()
 
     def _update_run_state(self) -> None:
         """Drive the Run button's enabled state + show *why* it is off.
@@ -446,14 +475,16 @@ class AIPanel(QWidget):
             return
 
         reasons = []
+        missing_keys = False
         if not self._files:
             reasons.append(
                 "Add images via the top bar (Add Folder / Add Files)."
             )
         if not self.km.usable_keys():
             reasons.append(
-                "Add at least one API key (Manage API Keys)."
+                "Add at least one API key in the Settings tab."
             )
+            missing_keys = True
 
         can_run = not reasons
         self.btn_run.setEnabled(can_run)
@@ -461,24 +492,22 @@ class AIPanel(QWidget):
             self.btn_run.setToolTip("Run AI Anatomy Inspector on the queue")
             self.lbl_run_reason.hide()
             self.lbl_run_reason.setText("")
+            self.btn_open_settings_inline.hide()
         else:
             joined = "\n".join(f"• {r}" for r in reasons)
             self.btn_run.setToolTip(joined)
             self.lbl_run_reason.setText(joined)
             self.lbl_run_reason.show()
+            # Only surface the inline "open settings" button when the
+            # missing precondition is an API key — there is nothing
+            # to fix in Settings if the user just hasn't queued images.
+            self.btn_open_settings_inline.setVisible(missing_keys)
 
     def _selected_depth(self) -> ScanDepth:
         for d, rb in self.rb_depth.items():
             if rb.isChecked():
                 return d
         return ScanDepth.DETAILED
-
-    def _on_manage_keys(self) -> None:
-        dlg = KeySettingsDialog(self.km, self)
-        dlg.exec()
-        # KeyManager is mutated in-place + saved, regardless of dialog
-        # acceptance — refresh the button state.
-        self._refresh_keys_label()
 
     def _on_auto_workers(self) -> None:
         usable = max(1, len(self.km.usable_keys()))
@@ -496,7 +525,7 @@ class AIPanel(QWidget):
         if not self.km.usable_keys():
             QMessageBox.warning(
                 self, "No usable API key",
-                "Add and enable at least one API key in Manage API Keys.",
+                "Add and enable at least one API key in the Settings tab.",
             )
             return
 
