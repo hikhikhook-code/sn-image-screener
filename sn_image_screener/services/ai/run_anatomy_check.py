@@ -44,9 +44,9 @@ from .region_merge import merge_regions
 from .tiling import build_tiles, encode_for_provider, read_tile_bytes
 from .types import (
     AIStatus, AnatomyCheck, AnatomyResult, Confidence, DefectCategory,
-    DefectFinding, DefectRegion, ImageInput, KeyStatus,
-    ObjectCheck, ScanDepth, ScreeningResult, Severity, Shape, Tile,
-    tiles_for_depth,
+    DefectFinding, DefectRegion, ExposureIssue, ImageInput, KeyStatus,
+    ObjectCheck, ScanDepth, ScreeningResult, Severity, Shape,
+    TechSeverity, TechnicalQuality, Tile, tiles_for_depth,
 )
 
 
@@ -379,6 +379,20 @@ def _merge_inspections(
     # Findings: dedupe by (category, description) but keep highest severity.
     result.main_defects_found = _dedupe_findings(seen_findings)
 
+    # Prefer the full-image technical-quality verdict; fall back to the
+    # first tile that actually filled the block. Tiles only see a 1/9th
+    # crop so their global judgement is less reliable than the full
+    # pass.
+    if parsed:
+        result.technical_quality = _tech_quality_from_dict(parsed)
+    else:
+        for t in tiles:
+            if t.parsed and isinstance(
+                t.parsed.get("technical_quality"), dict,
+            ):
+                result.technical_quality = _tech_quality_from_dict(t.parsed)
+                break
+
     # If the merged data shows no defects, force a benign status.
     if not merged and not result.main_defects_found:
         if result.status == AIStatus.ERROR:
@@ -387,7 +401,33 @@ def _merge_inspections(
             result.status = AIStatus.PASS
             result.screening_result = ScreeningResult.LIKELY_SAFE
 
+    # Apply the technical-quality side-check. The AI may already have
+    # weighed it into its own verdict; this is a defensive net so that
+    # an obvious technical concern does not slip past as PASS, while
+    # intentional bokeh never downgrades a clean image.
+    _apply_tech_verdict(result)
+
     return result
+
+
+def _apply_tech_verdict(result: AnatomyResult) -> None:
+    """Nudge status / screening_result based on technical_quality.
+
+    Rules:
+    * If the AI flagged a *non-bokeh* heavy blur or another hard
+      technical concern, an otherwise-PASS image is bumped to REVIEW.
+    * A heavy blur that is bokeh_is_intentional=true is ignored.
+    * FAIL / ERROR statuses are never softened or hardened by this
+      pass; the AI's primary anatomy verdict still wins.
+    """
+    if result.status in (AIStatus.FAIL, AIStatus.ERROR):
+        return
+    tq = result.technical_quality
+    if not tq.has_concern():
+        return
+    if result.status is AIStatus.PASS:
+        result.status = AIStatus.REVIEW
+        result.screening_result = ScreeningResult.NEEDS_HUMAN_REVIEW
 
 
 def _dedupe_findings(items: List[DefectFinding]) -> List[DefectFinding]:
@@ -458,6 +498,34 @@ def _regions_from_dict(d: dict) -> List[DefectRegion]:
     return out
 
 
+def _tech_quality_from_dict(d: dict) -> TechnicalQuality:
+    """Parse the technical_quality block defensively.
+
+    Missing or malformed values fall back to the benign defaults so a
+    provider that ignores the new prompt section does not regress an
+    image to REVIEW.
+    """
+    tq = d.get("technical_quality")
+    if not isinstance(tq, dict):
+        return TechnicalQuality()
+    return TechnicalQuality(
+        blur_severity=_safe_enum(
+            TechSeverity, tq.get("blur_severity"), TechSeverity.NONE,
+        ),
+        bokeh_is_intentional=bool(tq.get("bokeh_is_intentional", False)),
+        noise_severity=_safe_enum(
+            TechSeverity, tq.get("noise_severity"), TechSeverity.NONE,
+        ),
+        exposure_issue=_safe_enum(
+            ExposureIssue, tq.get("exposure_issue"), ExposureIssue.NONE,
+        ),
+        artifact_severity=_safe_enum(
+            TechSeverity, tq.get("artifact_severity"), TechSeverity.NONE,
+        ),
+        notes=str(tq.get("notes") or ""),
+    )
+
+
 def _result_from_dict(d: dict, image_path: Path) -> AnatomyResult:
     anatomy = d.get("anatomy_check") or {}
     obj = d.get("object_check") or {}
@@ -488,6 +556,7 @@ def _result_from_dict(d: dict, image_path: Path) -> AnatomyResult:
         technical_secondary_notes=[
             str(s) for s in (d.get("technical_secondary_notes") or [])
         ],
+        technical_quality=_tech_quality_from_dict(d),
         overall_summary=str(d.get("overall_summary") or ""),
         recommended_action=str(d.get("recommended_action") or "review manually"),
         confidence=_safe_enum(Confidence, d.get("confidence"), Confidence.MEDIUM),
