@@ -184,19 +184,19 @@ class ControlPanel(QFrame):
         out_row.addWidget(self.btn_choose_output)
         self.grp_output.add_layout(out_row)
 
-        self.chk_copy_pass = QCheckBox("Copy PASS files on export"); self.chk_copy_pass.setChecked(True)
-        self.chk_copy_review = QCheckBox("Copy REVIEW files on export")
-        self.chk_copy_reject = QCheckBox("Copy REJECT files on export")
         self.chk_export_csv = QCheckBox("Write CSV report"); self.chk_export_csv.setChecked(True)
         self.chk_export_json = QCheckBox("Write JSON report")
-        for cb in (self.chk_copy_pass, self.chk_copy_review, self.chk_copy_reject,
-                   self.chk_export_csv, self.chk_export_json):
+        for cb in (self.chk_export_csv, self.chk_export_json):
             self.grp_output.add(cb)
-        # Hint: clarify that exports are auto-organised into subfolders.
+        # Auto-sort: every export moves images into pass / review / fail /
+        # error subfolders inside the export folder. This is always on —
+        # no toggle.
         hint = _hint(
-            "Each ticked group is copied into its own subfolder "
-            "(PASS / REVIEW / REJECT) inside the export folder. "
-            "Original files are never moved or modified."
+            "Auto-sort: images are MOVED into pass / review / fail / "
+            "error subfolders based on their scan verdict. AI Inspector "
+            "results take precedence when both tools have run on the "
+            "same image. Original files are removed from the source "
+            "folder after export."
         )
         self.grp_output.add(hint)
 

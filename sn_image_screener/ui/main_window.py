@@ -17,7 +17,15 @@ from PySide6.QtWidgets import (
 from .. import __app_name__, __subtitle__, __version__
 from ..core.classifier import Status
 from ..core.deleter import human_size, total_size, trash_files
-from ..core.exporter import copy_by_status, export_csv, export_json
+from ..core.exporter import (
+    BUCKET_ERROR,
+    BUCKET_FAIL,
+    BUCKET_PASS,
+    BUCKET_REVIEW,
+    export_csv,
+    export_json,
+    sort_results_into_buckets,
+)
 from ..core.scanner import collect_paths
 from ..services.ai import KeyManager
 from . import theme
@@ -565,23 +573,31 @@ class MainWindow(QMainWindow):
                 export_json(items, json_path, ai_results=ai_results or None)
                 self.log_panel.ok(f"JSON report → {json_path}")
 
-            # Copy files into per-status subfolders (PASS / REVIEW / REJECT).
-            statuses_to_copy = []
-            if self.control_panel.chk_copy_pass.isChecked():
-                statuses_to_copy.append(Status.PASS)
-            if self.control_panel.chk_copy_review.isChecked():
-                statuses_to_copy.append(Status.REVIEW)
-            if self.control_panel.chk_copy_reject.isChecked():
-                statuses_to_copy.append(Status.REJECT)
-            if statuses_to_copy:
-                written = copy_by_status(items, out, statuses_to_copy)
-                buckets = " / ".join(s.value for s in statuses_to_copy)
+            # Auto-sort: MOVE every scanned file into pass / review /
+            # fail / error subfolders based on its verdict. The AI
+            # Inspector verdict (if present) takes precedence over the
+            # local Tool A verdict.
+            buckets = sort_results_into_buckets(
+                items, out, ai_results=ai_results or None, move=True,
+            )
+            n_pass = len(buckets[BUCKET_PASS])
+            n_review = len(buckets[BUCKET_REVIEW])
+            n_fail = len(buckets[BUCKET_FAIL])
+            n_error = len(buckets[BUCKET_ERROR])
+            total_moved = n_pass + n_review + n_fail + n_error
+            if total_moved:
                 self.log_panel.ok(
-                    f"Copied {len(written)} file(s) → {out}  ({buckets})"
+                    f"Sorted {total_moved} file(s) → {out}  "
+                    f"(pass: {n_pass}, review: {n_review}, "
+                    f"fail: {n_fail}, error: {n_error})"
                 )
 
             self.statusBar().showMessage(f"Export complete · {out}")
-            self.toaster.ok("Export complete", str(out))
+            self.toaster.ok(
+                "Export complete",
+                f"{out}\npass {n_pass} · review {n_review} · "
+                f"fail {n_fail} · error {n_error}",
+            )
         except Exception as exc:  # noqa: BLE001
             self.log_panel.err(f"Export failed · {exc}")
             self.toaster.err("Export failed", str(exc))
