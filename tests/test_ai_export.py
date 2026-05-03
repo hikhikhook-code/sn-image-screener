@@ -13,7 +13,8 @@ from sn_image_screener.core.presets import PRESETS
 from sn_image_screener.core.scanner import screen_one
 from sn_image_screener.services.ai.types import (
     AIStatus, AnatomyResult, Confidence, DefectCategory, DefectRegion,
-    ScanDepth, ScreeningResult, Severity, Shape,
+    ExposureIssue, ScanDepth, ScreeningResult, Severity, Shape,
+    TechSeverity, TechnicalQuality,
 )
 
 
@@ -43,6 +44,14 @@ def _fake_result(file_name: str) -> AnatomyResult:
         overall_summary="One hand looks off; review manually.",
         recommended_action="review manually",
         confidence=Confidence.MEDIUM,
+        technical_quality=TechnicalQuality(
+            blur_severity=TechSeverity.HEAVY,
+            bokeh_is_intentional=True,
+            noise_severity=TechSeverity.MILD,
+            exposure_issue=ExposureIssue.NONE,
+            artifact_severity=TechSeverity.NONE,
+            notes="Subject sharp; background heavily defocused.",
+        ),
         provider_used="gemini",
         key_label_used="prod-1",
         scan_depth=ScanDepth.DETAILED,
@@ -80,6 +89,12 @@ def test_csv_appends_ai_columns(tmp_path: Path, sample_dir: Path):
     assert target["ai_key_label_used"] == "prod-1"
     assert target["ai_scan_depth"] == "detailed"
     assert target["ai_defect_region_count"] == "1"
+    # New AI technical-quality columns are populated.
+    assert target["ai_blur_severity"] == "heavy"
+    assert target["ai_bokeh_is_intentional"] == "true"
+    assert target["ai_noise_severity"] == "mild"
+    assert target["ai_exposure_issue"] == "none"
+    assert target["ai_artifact_severity"] == "none"
 
     # Other rows have blank AI columns.
     others = [r for n, r in by_name.items() if n != items[0].path.name]
@@ -115,6 +130,14 @@ def test_json_includes_full_ai_payload(tmp_path: Path, sample_dir: Path):
     assert region["needs_manual_review"] is True
     assert ai["scan_depth"] == "detailed"
     assert ai["tile_count"] == 10
+    # New technical_quality block round-trips through JSON.
+    assert ai["technical_quality"]["blur_severity"] == "heavy"
+    assert ai["technical_quality"]["bokeh_is_intentional"] is True
+    assert ai["technical_quality"]["noise_severity"] == "mild"
+    assert (
+        ai["technical_quality"]["notes"]
+        == "Subject sharp; background heavily defocused."
+    )
 
     # Files without AI data have ai=None.
     for n, r in by_name.items():

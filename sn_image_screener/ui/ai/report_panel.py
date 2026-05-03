@@ -21,7 +21,8 @@ from PySide6.QtWidgets import (
 )
 
 from ...services.ai.types import (
-    AIStatus, AnatomyResult, ScreeningResult, Severity,
+    AIStatus, AnatomyResult, ExposureIssue, ScreeningResult,
+    Severity, TechSeverity, TechnicalQuality,
 )
 from ..widgets import EmptyState
 
@@ -121,6 +122,35 @@ class ReportPanel(QWidget):
         self.lbl_action.setAlignment(Qt.AlignmentFlag.AlignCenter)
         body.addWidget(self.lbl_action)
 
+        # Technical-quality side-check (AI-judged blur / noise /
+        # exposure / artifact, with bokeh awareness). Hidden when the
+        # AI didn't return any technical_quality block.
+        self._tech_section = QFrame()
+        self._tech_section.setStyleSheet("background:transparent;")
+        tech_v = QVBoxLayout(self._tech_section)
+        tech_v.setContentsMargins(0, 0, 0, 0)
+        tech_v.setSpacing(4)
+        tech_title = QLabel("TECHNICAL QUALITY (AI)")
+        tech_title.setStyleSheet(
+            "font-weight:bold; letter-spacing:1px; color:#111111;"
+        )
+        tech_v.addWidget(tech_title)
+        tech_row = QHBoxLayout()
+        tech_row.setSpacing(6)
+        self._tech_blur = self._tech_pill("BLUR")
+        self._tech_noise = self._tech_pill("NOISE")
+        self._tech_exposure = self._tech_pill("EXPOSURE")
+        self._tech_artifact = self._tech_pill("ARTIFACT")
+        for w in (self._tech_blur, self._tech_noise,
+                  self._tech_exposure, self._tech_artifact):
+            tech_row.addWidget(w, 1)
+        tech_v.addLayout(tech_row)
+        self._tech_notes = QLabel("")
+        self._tech_notes.setWordWrap(True)
+        self._tech_notes.setStyleSheet("color:#555555; font-style:italic;")
+        tech_v.addWidget(self._tech_notes)
+        body.addWidget(self._tech_section)
+
         # Suspected defect list
         title = QLabel("SUSPECTED DEFECT AREAS")
         title.setStyleSheet("font-weight:bold; letter-spacing:1px;")
@@ -173,6 +203,46 @@ class ReportPanel(QWidget):
     def _set_stat(block: QFrame, text: str) -> None:
         block.value_label.setText(text)  # type: ignore[attr-defined]
 
+    @staticmethod
+    def _tech_pill(title: str) -> QFrame:
+        f = QFrame()
+        f.setStyleSheet("border:2px solid #111111; background:#FFFFFF;")
+        v = QVBoxLayout(f)
+        v.setContentsMargins(6, 4, 6, 4)
+        t = QLabel(title)
+        t.setStyleSheet("color:#8A8377; font-size:10px; letter-spacing:1px;")
+        v.addWidget(t)
+        val = QLabel("—")
+        font = QFont(val.font())
+        font.setBold(True)
+        val.setFont(font)
+        val.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        v.addWidget(val)
+        f.value_label = val  # type: ignore[attr-defined]
+        return f
+
+    @staticmethod
+    def _set_tech_pill(pill: QFrame, text: str, *, severity: str) -> None:
+        """Recolour a technical pill based on severity bucket.
+
+        ``severity`` is one of ``"none" | "mild" | "heavy" | "ok"``;
+        ``"ok"`` is the special bokeh-disengaja state.
+        """
+        palette = {
+            "none":  ("#FFFFFF", "#111111", "#111111"),  # bg, fg, border
+            "mild":  ("#FFF4D6", "#3A2200", "#FFB627"),
+            "heavy": ("#FFE2E0", "#8A0F0A", "#FF3B30"),
+            "ok":    ("#E9FBC4", "#0B2D00", "#5BC23A"),
+        }
+        bg, fg, border = palette.get(severity, palette["none"])
+        pill.setStyleSheet(
+            f"border:2px solid {border}; background:{bg};"
+        )
+        pill.value_label.setText(text)  # type: ignore[attr-defined]
+        pill.value_label.setStyleSheet(  # type: ignore[attr-defined]
+            f"color:{fg}; font-weight:bold;"
+        )
+
     # ------------------------------------------------------------------
     # Public
     # ------------------------------------------------------------------
@@ -192,6 +262,8 @@ class ReportPanel(QWidget):
             self.lbl_primary.setText("")
             self.lbl_summary.setText("")
             self.lbl_action.setText("")
+            self._tech_section.setVisible(False)
+            self._tech_notes.setText("")
             self.lst_defects.clear()
             self.lbl_provider.setText("")
             self._body.setVisible(False)
@@ -234,6 +306,8 @@ class ReportPanel(QWidget):
         action = result.recommended_action.upper() if result.recommended_action else ""
         self.lbl_action.setText(action or "—")
 
+        self._populate_technical(result.technical_quality)
+
         self.lst_defects.clear()
         if not result.defect_regions:
             empty = QListWidgetItem("No visible defect regions detected.")
@@ -260,6 +334,67 @@ class ReportPanel(QWidget):
             f"depth: {depth} ({tiles} tiles) · "
             f"{result.duration_seconds:.1f}s"
         )
+
+    def _populate_technical(self, tq: TechnicalQuality) -> None:
+        """Drive the four technical pills + notes line.
+
+        Special-cases bokeh: when the AI flags blur as intentional
+        depth-of-field, the BLUR pill is rendered as the green
+        "BOKEH OK" state instead of an alarming red. That is the
+        whole point of bringing this side-check inside the AI scan
+        rather than running a separate rule-based pass.
+        """
+        # Hide the section entirely when the AI returned a default /
+        # empty technical_quality block (legacy provider response).
+        if not _has_any_tech_signal(tq):
+            self._tech_section.setVisible(False)
+            self._tech_notes.setText("")
+            return
+        self._tech_section.setVisible(True)
+
+        # Blur — bokeh overrides "heavy" into a friendly "BOKEH OK"
+        # so intentional shallow depth-of-field doesn't read like a
+        # defect.
+        if (
+            tq.blur_severity is not TechSeverity.NONE
+            and tq.bokeh_is_intentional
+        ):
+            self._set_tech_pill(self._tech_blur, "BOKEH OK", severity="ok")
+        else:
+            self._set_tech_pill(
+                self._tech_blur,
+                tq.blur_severity.value.upper(),
+                severity=tq.blur_severity.value,
+            )
+
+        self._set_tech_pill(
+            self._tech_noise,
+            tq.noise_severity.value.upper(),
+            severity=tq.noise_severity.value,
+        )
+        self._set_tech_pill(
+            self._tech_artifact,
+            tq.artifact_severity.value.upper(),
+            severity=tq.artifact_severity.value,
+        )
+
+        exposure_severity = "none"
+        if tq.exposure_issue is ExposureIssue.NONE:
+            exposure_text = "NONE"
+        elif tq.exposure_issue in (
+            ExposureIssue.BLOWN_HIGHLIGHTS, ExposureIssue.CRUSHED_SHADOWS,
+        ):
+            exposure_text = tq.exposure_issue.value.replace("_", " ").upper()
+            exposure_severity = "heavy"
+        else:
+            exposure_text = tq.exposure_issue.value.upper()
+            exposure_severity = "mild"
+        self._set_tech_pill(
+            self._tech_exposure, exposure_text, severity=exposure_severity,
+        )
+
+        self._tech_notes.setText(tq.notes or "")
+        self._tech_notes.setVisible(bool(tq.notes))
 
     def highlight(self, region_id: Optional[str]) -> None:
         for i in range(self.lst_defects.count()):
@@ -294,3 +429,20 @@ _SEV_BULLET = {
     Severity.MAJOR:    "■",
     Severity.CRITICAL: "✕",
 }
+
+
+def _has_any_tech_signal(tq: TechnicalQuality) -> bool:
+    """Return True when the AI actually filled the technical_quality block.
+
+    All-default / all-NONE responses (legacy provider, schema mismatch)
+    keep the panel section hidden so the user doesn't see four empty
+    "NONE" pills for every result.
+    """
+    if (
+        tq.blur_severity is not TechSeverity.NONE
+        or tq.noise_severity is not TechSeverity.NONE
+        or tq.artifact_severity is not TechSeverity.NONE
+        or tq.exposure_issue is not ExposureIssue.NONE
+    ):
+        return True
+    return bool(tq.notes)

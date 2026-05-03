@@ -12,7 +12,8 @@ from PIL import Image
 from sn_image_screener.services.ai.key_manager import KeyManager
 from sn_image_screener.services.ai.run_anatomy_check import AnatomyRunner
 from sn_image_screener.services.ai.types import (
-    AIStatus, KeyEntry, KeyStatus, ProviderName, ProviderResponse, ScanDepth,
+    AIStatus, ExposureIssue, KeyEntry, KeyStatus, ProviderName,
+    ProviderResponse, ScanDepth, ScreeningResult, TechSeverity,
 )
 
 
@@ -188,6 +189,121 @@ def test_fail_response_shapes_result(km: KeyManager, img: Path):
     assert result.primary_physical_issue == "broken hand"
     assert len(result.defect_regions) == 1
     assert result.defect_regions[0].label == "left hand"
+
+
+def _good_response_with_tech(**tq) -> ProviderResponse:
+    """Like ``_good_response`` but with a technical_quality block.
+
+    Defaults to all-NONE; pass keyword args to override specific axes.
+    """
+    payload = json.loads(_good_response().raw_text)
+    payload["technical_quality"] = {
+        "blur_severity":      tq.get("blur_severity", "none"),
+        "bokeh_is_intentional": tq.get("bokeh_is_intentional", False),
+        "noise_severity":     tq.get("noise_severity", "none"),
+        "exposure_issue":     tq.get("exposure_issue", "none"),
+        "artifact_severity":  tq.get("artifact_severity", "none"),
+        "notes":              tq.get("notes", ""),
+    }
+    return ProviderResponse(raw_text=json.dumps(payload))
+
+
+def test_technical_quality_propagates_from_full_response(
+    km: KeyManager, img: Path,
+):
+    """The AI's technical_quality block survives merge into AnatomyResult."""
+    resp = _good_response_with_tech(
+        blur_severity="heavy",
+        bokeh_is_intentional=True,
+        noise_severity="mild",
+        exposure_issue="none",
+        artifact_severity="none",
+        notes="Heavy bokeh, subject sharp",
+    )
+    with patch(
+        "sn_image_screener.services.ai.providers.gemini_provider.GeminiProvider.analyze",
+        return_value=resp,
+    ):
+        result = AnatomyRunner(km).run(img, ScanDepth.FAST)
+
+    tq = result.technical_quality
+    assert tq.blur_severity is TechSeverity.HEAVY
+    assert tq.bokeh_is_intentional is True
+    assert tq.noise_severity is TechSeverity.MILD
+    assert tq.exposure_issue is ExposureIssue.NONE
+    assert tq.notes == "Heavy bokeh, subject sharp"
+    # Bokeh is intentional, so the orchestrator must NOT downgrade
+    # an otherwise-clean PASS to REVIEW.
+    assert result.status is AIStatus.PASS
+    assert result.screening_result is ScreeningResult.LIKELY_SAFE
+
+
+def test_intentional_bokeh_does_not_downgrade(km: KeyManager, img: Path):
+    """Heavy blur + bokeh_is_intentional must preserve the PASS verdict."""
+    resp = _good_response_with_tech(
+        blur_severity="heavy", bokeh_is_intentional=True,
+    )
+    with patch(
+        "sn_image_screener.services.ai.providers.gemini_provider.GeminiProvider.analyze",
+        return_value=resp,
+    ):
+        result = AnatomyRunner(km).run(img, ScanDepth.FAST)
+    assert result.status is AIStatus.PASS
+
+
+def test_unintentional_blur_bumps_pass_to_review(km: KeyManager, img: Path):
+    """Heavy blur with bokeh_is_intentional=false bumps PASS to REVIEW."""
+    resp = _good_response_with_tech(
+        blur_severity="heavy", bokeh_is_intentional=False,
+    )
+    with patch(
+        "sn_image_screener.services.ai.providers.gemini_provider.GeminiProvider.analyze",
+        return_value=resp,
+    ):
+        result = AnatomyRunner(km).run(img, ScanDepth.FAST)
+    assert result.status is AIStatus.REVIEW
+    assert result.screening_result is ScreeningResult.NEEDS_HUMAN_REVIEW
+
+
+def test_blown_highlights_bumps_pass_to_review(km: KeyManager, img: Path):
+    """Severe exposure findings bump PASS to REVIEW even without blur."""
+    resp = _good_response_with_tech(exposure_issue="blown_highlights")
+    with patch(
+        "sn_image_screener.services.ai.providers.gemini_provider.GeminiProvider.analyze",
+        return_value=resp,
+    ):
+        result = AnatomyRunner(km).run(img, ScanDepth.FAST)
+    assert result.status is AIStatus.REVIEW
+
+
+def test_legacy_response_without_tech_block_still_passes(
+    km: KeyManager, img: Path,
+):
+    """Providers that ignore the new prompt block still produce PASS."""
+    with patch(
+        "sn_image_screener.services.ai.providers.gemini_provider.GeminiProvider.analyze",
+        return_value=_good_response(),
+    ):
+        result = AnatomyRunner(km).run(img, ScanDepth.FAST)
+    assert result.status is AIStatus.PASS
+    assert result.technical_quality.blur_severity is TechSeverity.NONE
+    assert result.technical_quality.bokeh_is_intentional is False
+
+
+def test_fail_response_not_rescued_by_clean_tech(km: KeyManager, img: Path):
+    """A FAIL anatomy verdict must never be softened to REVIEW by tech."""
+    payload = json.loads(_fail_response().raw_text)
+    payload["technical_quality"] = {
+        "blur_severity": "none", "bokeh_is_intentional": False,
+        "noise_severity": "none", "exposure_issue": "none",
+        "artifact_severity": "none", "notes": "",
+    }
+    with patch(
+        "sn_image_screener.services.ai.providers.gemini_provider.GeminiProvider.analyze",
+        return_value=ProviderResponse(raw_text=json.dumps(payload)),
+    ):
+        result = AnatomyRunner(km).run(img, ScanDepth.FAST)
+    assert result.status is AIStatus.FAIL
 
 
 def test_progress_events_fire(km: KeyManager, img: Path):

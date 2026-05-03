@@ -31,6 +31,8 @@ AI_REPORT_FIELDS = [
     "ai_defect_region_count", "ai_provider_used", "ai_key_label_used",
     "ai_scan_depth", "ai_tile_count", "ai_recommended_action",
     "ai_confidence", "ai_overall_summary", "ai_error",
+    "ai_blur_severity", "ai_bokeh_is_intentional",
+    "ai_noise_severity", "ai_exposure_issue", "ai_artifact_severity",
 ]
 
 
@@ -59,6 +61,7 @@ def _ai_row(result) -> dict:
     """Flatten an :class:`AnatomyResult` into the CSV-friendly columns."""
     if result is None:
         return {f: "" for f in AI_REPORT_FIELDS}
+    tq = result.technical_quality
     return {
         "ai_status":               result.status.value,
         "ai_screening_result":     result.screening_result.value,
@@ -74,6 +77,11 @@ def _ai_row(result) -> dict:
         "ai_confidence":           result.confidence.value,
         "ai_overall_summary":      result.overall_summary,
         "ai_error":                result.error or "",
+        "ai_blur_severity":        tq.blur_severity.value,
+        "ai_bokeh_is_intentional": "true" if tq.bokeh_is_intentional else "false",
+        "ai_noise_severity":       tq.noise_severity.value,
+        "ai_exposure_issue":       tq.exposure_issue.value,
+        "ai_artifact_severity":    tq.artifact_severity.value,
     }
 
 
@@ -125,6 +133,7 @@ def _ai_full_dict(result) -> Optional[dict]:
             "object_defects": list(result.object_check.object_defects),
         },
         "technical_secondary_notes": list(result.technical_secondary_notes),
+        "technical_quality":         result.technical_quality.to_dict(),
         "overall_summary":           result.overall_summary,
         "recommended_action":        result.recommended_action,
         "confidence":                result.confidence.value,

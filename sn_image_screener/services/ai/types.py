@@ -94,6 +94,24 @@ class KeyStatus(str, Enum):
     EXHAUSTED = "exhausted"
 
 
+class TechSeverity(str, Enum):
+    """Three-step severity used by the AI technical side-check."""
+
+    NONE = "none"
+    MILD = "mild"
+    HEAVY = "heavy"
+
+
+class ExposureIssue(str, Enum):
+    """Exposure verdict from the AI technical side-check."""
+
+    NONE = "none"
+    UNDEREXPOSED = "underexposed"
+    OVEREXPOSED = "overexposed"
+    BLOWN_HIGHLIGHTS = "blown_highlights"
+    CRUSHED_SHADOWS = "crushed_shadows"
+
+
 # ---------------------------------------------------------------------------
 # AI response shapes
 # ---------------------------------------------------------------------------
@@ -173,6 +191,61 @@ class ObjectCheck:
 
 
 @dataclass
+class TechnicalQuality:
+    """AI-judged technical quality side-check.
+
+    Lives on every :class:`AnatomyResult`. Defaults are deliberately
+    benign so that legacy responses (or providers that ignore the new
+    block) keep producing PASS-able results.
+
+    The key field for AI-generated portraits is
+    :attr:`bokeh_is_intentional` -- it lets the verdict layer treat
+    "subject sharp + heavily blurred background" as acceptable instead
+    of forcing a REVIEW. A rule-based local check can never make that
+    distinction reliably.
+    """
+
+    blur_severity: TechSeverity = TechSeverity.NONE
+    bokeh_is_intentional: bool = False
+    noise_severity: TechSeverity = TechSeverity.NONE
+    exposure_issue: ExposureIssue = ExposureIssue.NONE
+    artifact_severity: TechSeverity = TechSeverity.NONE
+    notes: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "blur_severity": self.blur_severity.value,
+            "bokeh_is_intentional": self.bokeh_is_intentional,
+            "noise_severity": self.noise_severity.value,
+            "exposure_issue": self.exposure_issue.value,
+            "artifact_severity": self.artifact_severity.value,
+            "notes": self.notes,
+        }
+
+    def has_concern(self) -> bool:
+        """True when at least one technical axis is heavy / non-none."""
+        if (
+            self.blur_severity is TechSeverity.HEAVY
+            and not self.bokeh_is_intentional
+        ):
+            return True
+        if self.noise_severity is TechSeverity.HEAVY:
+            return True
+        if self.artifact_severity is TechSeverity.HEAVY:
+            return True
+        if self.exposure_issue not in (ExposureIssue.NONE,):
+            # Only the strong exposure verdicts. "underexposed" /
+            # "overexposed" without a stronger qualifier could be
+            # artistic, so we let the AI flag it but don't treat
+            # mild light/dark as a concern on its own.
+            return self.exposure_issue in (
+                ExposureIssue.BLOWN_HIGHLIGHTS,
+                ExposureIssue.CRUSHED_SHADOWS,
+            )
+        return False
+
+
+@dataclass
 class AnatomyResult:
     """Full inspection result for a single image (after tile merge)."""
 
@@ -188,6 +261,7 @@ class AnatomyResult:
     anatomy_check: AnatomyCheck = field(default_factory=AnatomyCheck)
     object_check: ObjectCheck = field(default_factory=ObjectCheck)
     technical_secondary_notes: List[str] = field(default_factory=list)
+    technical_quality: TechnicalQuality = field(default_factory=TechnicalQuality)
     overall_summary: str = ""
     recommended_action: str = "review manually"
     confidence: Confidence = Confidence.MEDIUM
@@ -223,6 +297,7 @@ class AnatomyResult:
                 "object_defects": list(self.object_check.object_defects),
             },
             "technical_secondary_notes": list(self.technical_secondary_notes),
+            "technical_quality": self.technical_quality.to_dict(),
             "overall_summary": self.overall_summary,
             "recommended_action": self.recommended_action,
             "confidence": self.confidence.value,
