@@ -22,15 +22,28 @@ from .types import ProviderName
 
 @dataclass(frozen=True)
 class ModelOption:
-    """A single supported model for a provider."""
+    """A single supported model for a provider.
+
+    ``paid`` marks models that require billing on the provider side
+    (e.g. ``gemini-2.5-pro`` is locked behind paid quota on Google's
+    free tier and returns HTTP 429 immediately for free-tier keys).
+    The dropdown renders these with a ``(paid)`` suffix so users do
+    not pick a model their key cannot reach.
+    """
 
     id: str
     label: str = ""           # optional friendly label; falls back to ``id``
     recommended: bool = False
+    paid: bool = False
 
     def display(self) -> str:
         base = self.label or self.id
-        return f"{base} (recommended)" if self.recommended else base
+        suffix = ""
+        if self.recommended:
+            suffix = " (recommended)"
+        elif self.paid:
+            suffix = " (paid)"
+        return f"{base}{suffix}"
 
 
 # ---------------------------------------------------------------------------
@@ -41,14 +54,17 @@ class ModelOption:
 # ---------------------------------------------------------------------------
 
 PROVIDER_MODELS: Dict[ProviderName, Tuple[ModelOption, ...]] = {
+    # Google deprecated the entire gemini-1.5-* family on the v1beta REST
+    # endpoint. The current vision-capable, generally-available models are
+    # the 2.0 and 2.5 lines, plus the moving "*-latest" aliases.
     ProviderName.GEMINI: (
-        ModelOption("gemini-1.5-flash", recommended=True),
-        ModelOption("gemini-1.5-flash-8b"),
-        ModelOption("gemini-1.5-pro"),
+        ModelOption("gemini-2.5-flash", recommended=True),
+        ModelOption("gemini-2.5-pro", paid=True),
+        ModelOption("gemini-2.5-flash-lite"),
         ModelOption("gemini-2.0-flash"),
-        ModelOption("gemini-2.0-flash-exp"),
-        ModelOption("gemini-2.5-flash"),
-        ModelOption("gemini-2.5-pro"),
+        ModelOption("gemini-2.0-flash-lite"),
+        ModelOption("gemini-flash-latest"),
+        ModelOption("gemini-pro-latest", paid=True),
     ),
     ProviderName.OPENAI: (
         ModelOption("gpt-4o-mini", recommended=True),

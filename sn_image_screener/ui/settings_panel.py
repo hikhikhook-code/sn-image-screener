@@ -12,7 +12,7 @@ Layout:
     │  │                                                      │   │
     │  │   ╭─ card ─────────────────────────────────────────╮ │   │
     │  │   │  GEMINI · primary key       [• untested]       │ │   │
-    │  │   │  AIza••••••sxJk      MODEL: ▼ gemini-1.5-flash │ │   │
+    │  │   │  AIza••••••sxJk      MODEL: ▼ gemini-2.5-flash │ │   │
     │  │   │  [✓] enabled  [TEST]  [EDIT]  [DELETE]         │ │   │
     │  │   ╰────────────────────────────────────────────────╯ │   │
     │  │                                                      │   │
