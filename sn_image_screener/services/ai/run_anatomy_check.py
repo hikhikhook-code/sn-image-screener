@@ -401,6 +401,14 @@ def _merge_inspections(
             result.status = AIStatus.PASS
             result.screening_result = ScreeningResult.LIKELY_SAFE
 
+    # Reconcile status with merged tile-level findings. The full-image
+    # pass is sometimes too lenient — it may miss subtle AI artifacts
+    # (melted clothing, distorted thumb, hair clumps) that a 1/9th-tile
+    # close-up exposes. Without this rule a deep ULTRA scan can return
+    # ten moderate findings yet still report status=PASS, which is
+    # confusing for the user.
+    _escalate_for_merged_findings(result)
+
     # Apply the technical-quality side-check. The AI may already have
     # weighed it into its own verdict; this is a defensive net so that
     # an obvious technical concern does not slip past as PASS, while
@@ -408,6 +416,50 @@ def _merge_inspections(
     _apply_tech_verdict(result)
 
     return result
+
+
+def _escalate_for_merged_findings(result: AnatomyResult) -> None:
+    """Bump status when tile-level findings disagree with the full pass.
+
+    Rules:
+    * If any merged finding is ``critical`` or ``major`` → FAIL / high_risk.
+    * Else if any merged finding is ``moderate`` → REVIEW / needs_human_review
+      (only when the current status is PASS — never soften REVIEW/FAIL).
+    * Pure-``minor`` findings are left alone; the full pass still wins
+      because minor blemishes are common in real photography.
+    * ERROR is never overridden.
+
+    Tile findings flagged ``technical_secondary`` are excluded from the
+    severity vote because tiles cannot tell intentional bokeh from real
+    blur — that is the job of :func:`_apply_tech_verdict`.
+    """
+    if result.status is AIStatus.ERROR:
+        return
+    rank = {
+        Severity.MINOR: 1,
+        Severity.MODERATE: 2,
+        Severity.MAJOR: 3,
+        Severity.CRITICAL: 4,
+    }
+    worst = 0
+    for f in result.main_defects_found:
+        if f.category is DefectCategory.TECHNICAL_SECONDARY:
+            continue
+        worst = max(worst, rank.get(f.severity, 0))
+    for r in result.defect_regions:
+        if r.category is DefectCategory.TECHNICAL_SECONDARY:
+            continue
+        worst = max(worst, rank.get(r.severity, 0))
+    if worst >= rank[Severity.MAJOR]:
+        if result.status is not AIStatus.FAIL:
+            result.status = AIStatus.FAIL
+            result.screening_result = ScreeningResult.HIGH_RISK
+        result.physical_defect_detected = True
+    elif worst == rank[Severity.MODERATE]:
+        if result.status is AIStatus.PASS:
+            result.status = AIStatus.REVIEW
+            result.screening_result = ScreeningResult.NEEDS_HUMAN_REVIEW
+        result.physical_defect_detected = True
 
 
 def _apply_tech_verdict(result: AnatomyResult) -> None:

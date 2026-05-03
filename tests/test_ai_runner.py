@@ -306,6 +306,118 @@ def test_fail_response_not_rescued_by_clean_tech(km: KeyManager, img: Path):
     assert result.status is AIStatus.FAIL
 
 
+def _pass_full_with_dirty_tile() -> tuple[ProviderResponse, ProviderResponse]:
+    """Full-image PASS but a tile finds a moderate hand defect.
+
+    Used to exercise the merge-time escalation rule: tile-level findings
+    above the minor threshold should bump the verdict away from PASS.
+    """
+    full = _good_response()
+    tile_payload = json.loads(_good_response().raw_text)
+    tile_payload["main_defects_found"] = [{
+        "category": "hands_fingers",
+        "severity": "moderate",
+        "location": "thumb",
+        "description": "Unnatural crease on thumb",
+        "why_it_matters": "Distorts natural anatomy.",
+    }]
+    tile_payload["defect_regions"] = [{
+        "id": "r1", "label": "thumb",
+        "category": "hands_fingers", "severity": "moderate",
+        "confidence": "high", "shape": "box",
+        "box_2d": [400, 300, 600, 500],
+        "description": "Unnatural crease on thumb",
+        "related_defect_index": 0,
+        "needs_manual_review": True,
+    }]
+    return full, ProviderResponse(raw_text=json.dumps(tile_payload))
+
+
+def _pass_full_with_minor_tile() -> tuple[ProviderResponse, ProviderResponse]:
+    """Full-image PASS plus a tile that only flags a minor blemish."""
+    full = _good_response()
+    tile_payload = json.loads(_good_response().raw_text)
+    tile_payload["main_defects_found"] = [{
+        "category": "background_geometry",
+        "severity": "minor",
+        "location": "wall",
+        "description": "Tiny seam on wall",
+        "why_it_matters": "Subtle, easy to miss.",
+    }]
+    return full, ProviderResponse(raw_text=json.dumps(tile_payload))
+
+
+def _pass_full_with_critical_tile() -> tuple[ProviderResponse, ProviderResponse]:
+    """Full-image PASS plus a tile that flags a critical hand defect."""
+    full = _good_response()
+    tile_payload = json.loads(_good_response().raw_text)
+    tile_payload["main_defects_found"] = [{
+        "category": "hands_fingers",
+        "severity": "critical",
+        "location": "left hand",
+        "description": "Six fingers on the left hand",
+        "why_it_matters": "Severe AI artifact.",
+    }]
+    tile_payload["defect_regions"] = [{
+        "id": "r1", "label": "left hand",
+        "category": "hands_fingers", "severity": "critical",
+        "confidence": "high", "shape": "box",
+        "box_2d": [200, 100, 800, 600],
+        "description": "Six fingers", "related_defect_index": 0,
+        "needs_manual_review": True,
+    }]
+    return full, ProviderResponse(raw_text=json.dumps(tile_payload))
+
+
+def test_moderate_tile_finding_bumps_pass_to_review(
+    km: KeyManager, img: Path,
+):
+    """A clean full-image pass + a moderate tile finding => REVIEW."""
+    full, tile = _pass_full_with_dirty_tile()
+    # 1 full + 9 tiles, all 9 tiles return the same moderate finding.
+    responses = [full] + [tile] * 9
+    with patch(
+        "sn_image_screener.services.ai.providers.gemini_provider.GeminiProvider.analyze",
+        side_effect=responses,
+    ):
+        result = AnatomyRunner(km).run(img, ScanDepth.DETAILED)
+    assert result.status is AIStatus.REVIEW
+    assert result.screening_result is ScreeningResult.NEEDS_HUMAN_REVIEW
+    assert result.physical_defect_detected is True
+    assert any(
+        d.severity.value == "moderate" for d in result.main_defects_found
+    )
+
+
+def test_minor_tile_finding_does_not_bump(km: KeyManager, img: Path):
+    """A purely-minor tile finding should not escalate a clean PASS."""
+    full, tile = _pass_full_with_minor_tile()
+    responses = [full] + [tile] * 9
+    with patch(
+        "sn_image_screener.services.ai.providers.gemini_provider.GeminiProvider.analyze",
+        side_effect=responses,
+    ):
+        result = AnatomyRunner(km).run(img, ScanDepth.DETAILED)
+    assert result.status is AIStatus.PASS
+    assert result.screening_result is ScreeningResult.LIKELY_SAFE
+
+
+def test_critical_tile_finding_promotes_pass_to_fail(
+    km: KeyManager, img: Path,
+):
+    """A critical tile finding (e.g. extra finger) flips PASS straight to FAIL."""
+    full, tile = _pass_full_with_critical_tile()
+    responses = [full] + [tile] * 9
+    with patch(
+        "sn_image_screener.services.ai.providers.gemini_provider.GeminiProvider.analyze",
+        side_effect=responses,
+    ):
+        result = AnatomyRunner(km).run(img, ScanDepth.DETAILED)
+    assert result.status is AIStatus.FAIL
+    assert result.screening_result is ScreeningResult.HIGH_RISK
+    assert result.physical_defect_detected is True
+
+
 def test_progress_events_fire(km: KeyManager, img: Path):
     events: list[tuple[str, dict]] = []
 

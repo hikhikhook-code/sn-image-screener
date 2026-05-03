@@ -48,3 +48,22 @@ def test_display_marks_recommended():
     assert rec.display().endswith("(recommended)")
     other = [m for m in models_for(ProviderName.GEMINI) if not m.recommended][0]
     assert "(recommended)" not in other.display()
+
+
+def test_display_marks_paid():
+    """Paid-only models are tagged so users with free-tier keys avoid them."""
+    paid = [
+        m for m in models_for(ProviderName.GEMINI)
+        if m.paid and not m.recommended
+    ]
+    assert paid, "expected at least one (paid) Gemini model"
+    for opt in paid:
+        assert opt.display().endswith("(paid)")
+
+
+def test_recommended_takes_precedence_over_paid():
+    """If a model is somehow both, the recommended tag wins on display."""
+    from sn_image_screener.services.ai.models import ModelOption
+    opt = ModelOption("foo", recommended=True, paid=True)
+    assert opt.display().endswith("(recommended)")
+    assert "(paid)" not in opt.display()
