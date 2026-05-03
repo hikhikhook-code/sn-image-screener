@@ -289,46 +289,63 @@ class FullReviewDialog(QDialog):
         self._image_stack.setCurrentIndex(0)
 
         # --- Overlay nav buttons (children of the host, not laid out) ---
+        # Fully transparent chevrons — no dark/grey rectangular backdrop,
+        # no border. They are hidden until the cursor enters the image
+        # area and re-hidden when it leaves, with a subtle lime-glow
+        # hover effect that only colours the glyph itself.
         nav_style = (
             f"QToolButton#review-nav {{"
-            f"  background:rgba(17,17,17,150);"
+            f"  background:transparent;"
             f"  color:{theme.LIME};"
-            f"  border:2px solid rgba(17,17,17,210);"
-            f"  font-size:22px; font-weight:900;"
+            f"  border:none;"
+            f"  font-size:48px; font-weight:900;"
             f"  padding:0;"
             f"}}"
             f"QToolButton#review-nav:hover {{"
-            f"  background:{theme.LIME};"
-            f"  color:{theme.INK};"
-            f"  border:2px solid {theme.INK};"
+            f"  background:transparent;"
+            f"  color:#FFFFFF;"
+            f"  border:none;"
             f"}}"
             f"QToolButton#review-nav:disabled {{"
-            f"  background:rgba(17,17,17,90);"
-            f"  color:rgba(214,238,44,90);"
-            f"  border:2px solid rgba(17,17,17,90);"
+            f"  background:transparent;"
+            f"  color:rgba(214,238,44,80);"
+            f"  border:none;"
             f"}}"
         )
         self.btn_prev = QToolButton(self._image_stack_host)
         self.btn_prev.setObjectName("review-nav")
-        self.btn_prev.setText("◀")
+        self.btn_prev.setText("\u2039")  # single left-pointing chevron
         self.btn_prev.setToolTip("Previous image (Left arrow)")
-        self.btn_prev.setFixedSize(QSize(56, 100))
+        self.btn_prev.setFixedSize(QSize(64, 120))
         self.btn_prev.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_prev.setStyleSheet(nav_style)
+        self.btn_prev.setAutoFillBackground(False)
+        self.btn_prev.setAttribute(
+            Qt.WidgetAttribute.WA_TranslucentBackground, True,
+        )
         self.btn_prev.clicked.connect(self._prev)
+        self.btn_prev.hide()
         self.btn_prev.raise_()
 
         self.btn_next = QToolButton(self._image_stack_host)
         self.btn_next.setObjectName("review-nav")
-        self.btn_next.setText("▶")
+        self.btn_next.setText("\u203A")  # single right-pointing chevron
         self.btn_next.setToolTip("Next image (Right arrow)")
-        self.btn_next.setFixedSize(QSize(56, 100))
+        self.btn_next.setFixedSize(QSize(64, 120))
         self.btn_next.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_next.setStyleSheet(nav_style)
+        self.btn_next.setAutoFillBackground(False)
+        self.btn_next.setAttribute(
+            Qt.WidgetAttribute.WA_TranslucentBackground, True,
+        )
         self.btn_next.clicked.connect(self._next)
+        self.btn_next.hide()
         self.btn_next.raise_()
 
-        # Reposition the overlay buttons whenever the host resizes.
+        # Track mouse movement on the host so the chevrons can fade in
+        # only while the cursor is over the image area.
+        self._image_stack_host.setMouseTracking(True)
+        self.marker.setMouseTracking(True)
         self._image_stack_host.installEventFilter(self)
 
         image_pane = self._image_stack_host
@@ -362,9 +379,30 @@ class FullReviewDialog(QDialog):
     # ------------------------------------------------------------------
 
     def eventFilter(self, obj, event):  # type: ignore[override]
-        if obj is self._image_stack_host and event.type() == QEvent.Type.Resize:
-            self._reposition_nav()
+        if obj is self._image_stack_host:
+            t = event.type()
+            if t == QEvent.Type.Resize:
+                self._reposition_nav()
+            elif t == QEvent.Type.Enter:
+                self._set_nav_visible(True)
+            elif t == QEvent.Type.Leave:
+                self._set_nav_visible(False)
         return super().eventFilter(obj, event)
+
+    def _set_nav_visible(self, visible: bool) -> None:
+        """Show / hide the overlay chevrons.
+
+        Chevrons stay hidden whenever the cursor is outside the image
+        host or there is at most one item to navigate between, so they
+        never read as a permanent UI element when there's nothing to do.
+        """
+        if visible and len(self._items) > 1:
+            self.btn_prev.show()
+            self.btn_next.show()
+            self._reposition_nav()
+        else:
+            self.btn_prev.hide()
+            self.btn_next.hide()
 
     def _reposition_nav(self) -> None:
         host = self._image_stack_host
@@ -383,8 +421,11 @@ class FullReviewDialog(QDialog):
     def showEvent(self, event):  # type: ignore[override]
         super().showEvent(event)
         # Defer one pass so widget sizes have settled before we move
-        # the overlay buttons into place.
+        # the overlay buttons into place. They stay hidden until the
+        # cursor enters the image host.
         self._reposition_nav()
+        self.btn_prev.hide()
+        self.btn_next.hide()
 
     # ------------------------------------------------------------------
     # Navigation

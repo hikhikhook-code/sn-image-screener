@@ -88,7 +88,36 @@ class KeyManager:
         # cooldown lifts. Anything <= now_ts() is usable again. Cleared
         # by `reset_run_state()` at the start of each run.
         self._cooldown: Dict[int, float] = {}
+        # Listeners notified after every successful disk flush so other
+        # parts of the UI (e.g. the AI Inspector's "Run" button enabled
+        # state) refresh without polling.
+        self._listeners: List[callable] = []
         self.load()
+
+    def add_listener(self, callback) -> None:  # noqa: ANN001
+        """Register ``callback`` to fire after each ``save()``."""
+        with self._lock:
+            if callback not in self._listeners:
+                self._listeners.append(callback)
+
+    def remove_listener(self, callback) -> None:  # noqa: ANN001
+        with self._lock:
+            try:
+                self._listeners.remove(callback)
+            except ValueError:
+                pass
+
+    def _notify_changed(self) -> None:
+        """Fire all listeners (best-effort, errors are swallowed)."""
+        # Snapshot so callbacks that re-enter (e.g. add_listener while
+        # we iterate) don't break the loop.
+        with self._lock:
+            listeners = list(self._listeners)
+        for cb in listeners:
+            try:
+                cb()
+            except Exception:  # noqa: BLE001
+                pass
 
     # ------------------------------------------------------------------
     # Persistence
@@ -114,6 +143,7 @@ class KeyManager:
             tmp = self.path.with_suffix(self.path.suffix + ".tmp")
             tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
             tmp.replace(self.path)
+        self._notify_changed()
 
     def _sort_in_place(self) -> None:
         self._keys.sort(key=lambda k: (k.priority, k.provider.value, k.label))
@@ -146,12 +176,80 @@ class KeyManager:
         with self._lock:
             if 0 <= index < len(self._keys):
                 self._keys.pop(index)
+                # Indices shifted — drop stale cooldown entries.
+                self._cooldown.clear()
 
     def update(self, index: int, entry: KeyEntry) -> None:
         with self._lock:
             if 0 <= index < len(self._keys):
                 self._keys[index] = entry
                 self._sort_in_place()
+
+    # ------------------------------------------------------------------
+    # Auto-save helpers
+    #
+    # The Settings UI calls these after every individual edit so the
+    # user's keys are flushed to disk immediately — there is no
+    # "Save" button. This avoids the previous "added a key, Execution
+    # panel still says 'Add at least one API key'" footgun where the
+    # rebuilt-on-save flow could lose the freshly-typed entry if the
+    # window was closed without explicitly clicking Save.
+    # ------------------------------------------------------------------
+
+    def add_and_save(self, entry: KeyEntry) -> int:
+        """Append ``entry`` and flush. Returns the resulting index."""
+        with self._lock:
+            self.add(entry)
+            self.save()
+            for i, k in enumerate(self._keys):
+                if (
+                    k.provider == entry.provider
+                    and k.label == entry.label
+                    and k.key == entry.key
+                ):
+                    return i
+            return -1
+
+    def update_and_save(self, index: int, entry: KeyEntry) -> None:
+        """Replace ``index`` with ``entry`` and flush."""
+        with self._lock:
+            self.update(index, entry)
+            self.save()
+
+    def remove_and_save(self, index: int) -> None:
+        """Remove ``index`` and flush."""
+        with self._lock:
+            self.remove(index)
+            self.save()
+
+    def set_enabled_and_save(self, index: int, enabled: bool) -> None:
+        """Toggle the ``enabled`` flag for ``index`` and flush."""
+        with self._lock:
+            if 0 <= index < len(self._keys):
+                self._keys[index].enabled = bool(enabled)
+                self.save()
+
+    def set_model_and_save(self, index: int, model: str) -> None:
+        """Replace the ``model`` field for ``index`` and flush."""
+        with self._lock:
+            if 0 <= index < len(self._keys):
+                self._keys[index].model = model
+                self.save()
+
+    def set_status_and_save(
+        self, index: int, status: KeyStatus, error: str = "",
+    ) -> None:
+        """Update only the cached status for ``index`` and flush.
+
+        Used by the Settings card after the in-line "Test" returns so
+        the badge persists across app restarts.
+        """
+        with self._lock:
+            if 0 <= index < len(self._keys):
+                self._keys[index].status = status
+                self._keys[index].last_error = error
+                self._keys[index].last_used_at = now_ts()
+                self.save()
 
     def set_status(
         self, key: KeyEntry, status: KeyStatus, error: str = "",

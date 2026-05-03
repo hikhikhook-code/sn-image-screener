@@ -300,9 +300,15 @@ class NavRail(QFrame):
         return btn
 
     def set_active(self, index: int) -> None:
-        """Programmatically select a mode without emitting ``mode_changed``."""
+        """Programmatically select a mode and notify listeners.
+
+        Emits :attr:`mode_changed` so callers that wire the rail to a
+        ``QStackedWidget`` (or any side-effects) get the same behaviour
+        a real click would produce.
+        """
         if 0 <= index < len(self._buttons):
             self._buttons[index].setChecked(True)
+            self.mode_changed.emit(index)
 
     def is_collapsed(self) -> bool:
         return self._collapsed
