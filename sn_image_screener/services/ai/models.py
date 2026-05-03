@@ -41,14 +41,17 @@ class ModelOption:
 # ---------------------------------------------------------------------------
 
 PROVIDER_MODELS: Dict[ProviderName, Tuple[ModelOption, ...]] = {
+    # Google deprecated the entire gemini-1.5-* family on the v1beta REST
+    # endpoint. The current vision-capable, generally-available models are
+    # the 2.0 and 2.5 lines, plus the moving "*-latest" aliases.
     ProviderName.GEMINI: (
-        ModelOption("gemini-1.5-flash", recommended=True),
-        ModelOption("gemini-1.5-flash-8b"),
-        ModelOption("gemini-1.5-pro"),
-        ModelOption("gemini-2.0-flash"),
-        ModelOption("gemini-2.0-flash-exp"),
-        ModelOption("gemini-2.5-flash"),
+        ModelOption("gemini-2.5-flash", recommended=True),
         ModelOption("gemini-2.5-pro"),
+        ModelOption("gemini-2.5-flash-lite"),
+        ModelOption("gemini-2.0-flash"),
+        ModelOption("gemini-2.0-flash-lite"),
+        ModelOption("gemini-flash-latest"),
+        ModelOption("gemini-pro-latest"),
     ),
     ProviderName.OPENAI: (
         ModelOption("gpt-4o-mini", recommended=True),

@@ -4,8 +4,10 @@ Uses the public REST endpoint::
 
     POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={KEY}
 
-Default model: ``gemini-1.5-flash`` (cheap, fast, supports image input).
-The user can override the model per key in Settings.
+Default model: ``gemini-2.5-flash`` (cheap, fast, supports image input).
+The gemini-1.5-* family is deprecated on the v1beta REST endpoint, so we
+fall back to the current 2.5-flash model when a stored key has no model
+set. The user can override the model per key in Settings.
 """
 
 from __future__ import annotations
@@ -35,7 +37,7 @@ class GeminiProvider(Provider):
         *,
         timeout: int = 60,
     ) -> ProviderResponse:
-        model = key.model or "gemini-1.5-flash"
+        model = key.model or "gemini-2.5-flash"
         url = GEMINI_ENDPOINT.format(model=model)
 
         payload = {
