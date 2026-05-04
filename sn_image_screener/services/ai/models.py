@@ -72,13 +72,16 @@ PROVIDER_MODELS: Dict[ProviderName, Tuple[ModelOption, ...]] = {
         ModelOption("gpt-4.1-mini"),
         ModelOption("gpt-4.1"),
     ),
+    # Groq's vision-capable roster shrank during 2025–2026:
+    # ``llama-3.2-{11b,90b}-vision-preview`` were decommissioned and
+    # ``meta-llama/llama-4-maverick-17b-128e-instruct`` was deprecated
+    # on 2026-03-09. ``llama-4-scout`` is the only Groq model that
+    # currently accepts image inputs (see
+    # https://console.groq.com/docs/vision).
     ProviderName.GROQ: (
         ModelOption(
             "meta-llama/llama-4-scout-17b-16e-instruct", recommended=True,
         ),
-        ModelOption("meta-llama/llama-4-maverick-17b-128e-instruct"),
-        ModelOption("llama-3.2-11b-vision-preview"),
-        ModelOption("llama-3.2-90b-vision-preview"),
     ),
 }
 
