@@ -261,6 +261,10 @@ class FullReviewDialog(QDialog):
         self.marker.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding,
         )
+        # Mouse-wheel zoom (and double-click reset) inside MarkerView
+        # bypass the toolbar buttons, so subscribe to its zoom_changed
+        # signal to keep the % label in the toolbar in sync.
+        self.marker.zoom_changed.connect(self._on_marker_zoom_changed)
 
         # Empty-state placeholder + image stacked together so we can swap
         # them when the dialog is opened with zero items.
@@ -544,6 +548,12 @@ class FullReviewDialog(QDialog):
     def _update_zoom_label(self) -> None:
         z = int(round(self.marker.zoom() * 100))
         self.btn_zoom_label.setText(f"{z}%")
+
+    def _on_marker_zoom_changed(self, _factor: float) -> None:
+        # MarkerView already knows the new zoom; just keep the toolbar
+        # % label aligned with whatever the user did (wheel, drag,
+        # toolbar button, double-click reset).
+        self._update_zoom_label()
 
     def _copy_filename(self) -> None:
         if not self._items:
