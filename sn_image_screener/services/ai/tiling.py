@@ -40,13 +40,37 @@ TILE_JPEG_QUALITY = 88
 TILE_LONG_EDGE_CAP = 1024
 
 
+# Vision providers reject degenerate images: Groq returns
+# ``HTTP 400 "Image must have at least 2 pixels in each dimension"``,
+# so anything we send must have both width and height ≥ this floor.
+# This also covers extreme aspect ratios where ``_resize_long_edge``
+# would otherwise round the short edge down to 0 or 1 px.
+_MIN_DIM = 2
+
+
 def _resize_long_edge(img: Image.Image, max_long: int) -> Image.Image:
+    """Resize so the long edge ≤ ``max_long`` and both dims ≥ ``_MIN_DIM``.
+
+    For typical screenshots this is a no-op when the image is already
+    small enough. For images with extreme aspect ratios (e.g.
+    ``4000×3``), naive proportional scaling collapses the short edge to
+    1 px, which the vision providers then reject — so we clamp both
+    output dims to at least ``_MIN_DIM`` even if it slightly distorts
+    the aspect ratio.
+    """
     w, h = img.size
     long_edge = max(w, h)
-    if long_edge <= max_long:
+    if long_edge <= max_long and min(w, h) >= _MIN_DIM:
         return img
-    scale = max_long / long_edge
-    return img.resize((int(round(w * scale)), int(round(h * scale))), Image.LANCZOS)
+    if long_edge > max_long:
+        scale = max_long / long_edge
+        new_w = int(round(w * scale))
+        new_h = int(round(h * scale))
+    else:
+        new_w, new_h = w, h
+    new_w = max(_MIN_DIM, new_w)
+    new_h = max(_MIN_DIM, new_h)
+    return img.resize((new_w, new_h), Image.LANCZOS)
 
 
 def encode_for_provider(
@@ -112,6 +136,15 @@ def build_tiles(
                 y1 = row_edges[ry + 1]
                 tile_w = x1 - x0
                 tile_h = y1 - y0
+
+                # Tiny source images can produce degenerate tiles
+                # (e.g. a 3-px-wide image split into a 4×4 grid yields
+                # zero-width columns). Skip those — they can't carry
+                # any signal and the vision provider would reject them
+                # with "Image must have at least 2 pixels in each
+                # dimension".
+                if tile_w < _MIN_DIM or tile_h < _MIN_DIM:
+                    continue
 
                 tile_im = im.crop((x0, y0, x1, y1))
                 tile_im = _resize_long_edge(tile_im, TILE_LONG_EDGE_CAP)
