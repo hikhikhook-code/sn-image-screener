@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PySide6.QtCore import QObject, Qt, QThread, Signal
+from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
@@ -383,6 +383,7 @@ class ApiKeyCard(QFrame):
     request_edit = Signal()
     request_delete = Signal()
     request_test = Signal()
+    request_reset_cooldown = Signal()  # user clicked "RETRY NOW" on a cooled-down key
 
     def __init__(
         self,
@@ -474,6 +475,18 @@ class ApiKeyCard(QFrame):
         row3.addWidget(self.chk_enabled)
         row3.addStretch(1)
 
+        # "RETRY NOW" only surfaces when the key is currently cooled
+        # down (rate-limited / failed / exhausted). Clears the cooldown
+        # so the runner picks the key up again on its next iteration.
+        self.btn_retry = QPushButton("RETRY NOW")
+        self.btn_retry.setToolTip(
+            "Clear the cool-down for this key so the runner can use it "
+            "again before the rate-limit window expires."
+        )
+        self.btn_retry.clicked.connect(self.request_reset_cooldown.emit)
+        self.btn_retry.setVisible(False)
+        row3.addWidget(self.btn_retry)
+
         self.btn_test = QPushButton("TEST API")
         self.btn_test.clicked.connect(self.request_test.emit)
         row3.addWidget(self.btn_test)
@@ -492,6 +505,15 @@ class ApiKeyCard(QFrame):
         row3.addWidget(self.btn_delete)
 
         outer.addLayout(row3)
+
+        # Tick once a second to keep the cool-down countdown on the
+        # status pill fresh while a scan is rotating between keys.
+        # Stays stopped while the card is in a non-cooldown state to
+        # avoid a tray full of idle timers.
+        self._cooldown_timer = QTimer(self)
+        self._cooldown_timer.setInterval(1000)
+        self._cooldown_timer.timeout.connect(self._refresh_cooldown_view)
+        self._refresh_cooldown_view()
 
     # ---- public API used by the panel -------------------------------
 
@@ -523,6 +545,46 @@ class ApiKeyCard(QFrame):
         self._entry.status = status
         self.lbl_status.setText(_STATUS_TEXT[status])
         self._restyle_status(status)
+        self._refresh_cooldown_view()
+
+    def _refresh_cooldown_view(self) -> None:
+        """Update the status pill + retry button to reflect cool-down.
+
+        Polls :meth:`KeyManager.cooldown_remaining_for` so the user can
+        see, in real time, how long until the runner will retry a
+        rate-limited key. Also surfaces the last error string as the
+        pill's tooltip (e.g. ``"Rate limited (try again in 12.4s)"``).
+        """
+        remaining = self._km.cooldown_remaining_for(self._entry)
+        last_error = (self._entry.last_error or "").strip()
+        if remaining is not None and remaining > 0:
+            secs = max(1, int(round(remaining)))
+            base = _STATUS_TEXT.get(self._entry.status, str(self._entry.status))
+            self.lbl_status.setText(f"{base} ({secs}s)")
+            tip = (
+                f"{base.upper()} \u2014 retry in {secs}s.\n"
+                f"{last_error}" if last_error else
+                f"{base.upper()} \u2014 retry in {secs}s."
+            )
+            self.lbl_status.setToolTip(tip)
+            self.btn_retry.setVisible(True)
+            if not self._cooldown_timer.isActive():
+                self._cooldown_timer.start()
+        else:
+            # No active cooldown \u2014 show the plain status, hide the
+            # retry button, stop the per-second tick.
+            base = _STATUS_TEXT.get(self._entry.status, str(self._entry.status))
+            self.lbl_status.setText(base)
+            self.lbl_status.setToolTip(last_error if last_error else "")
+            # Keep the retry button visible for FAILED keys so the user
+            # can force a retry even after the cooldown elapses (the
+            # runner already would, but the button doubles as an
+            # affordance to clear the "invalid" pill manually).
+            self.btn_retry.setVisible(
+                self._entry.status in (KeyStatus.FAILED, KeyStatus.EXHAUSTED)
+            )
+            if self._cooldown_timer.isActive():
+                self._cooldown_timer.stop()
 
     def set_busy(self, busy: bool, text: str = "") -> None:
         self.btn_test.setEnabled(not busy)
@@ -605,6 +667,14 @@ class SettingsPanel(QWidget):
         self._cards: list[ApiKeyCard] = []
         self._build()
         self._reload_cards()
+        # KeyManager listeners can fire from worker threads (the
+        # parallel runner mutates statuses from a ThreadPoolExecutor).
+        # Hop back to the GUI thread via a queued signal connection
+        # before touching widgets.
+        self._status_invalidated.connect(
+            self._on_status_invalidated,
+            Qt.ConnectionType.QueuedConnection,
+        )
         # Refresh the cards whenever something else mutates the
         # KeyManager (e.g. a key fails over during a run and the
         # status pill needs to flip).
@@ -737,15 +807,46 @@ class SettingsPanel(QWidget):
         card.request_edit.connect(lambda c=card: self._on_edit(c))
         card.request_delete.connect(lambda c=card: self._on_delete(c))
         card.request_test.connect(lambda c=card: self._on_test(c))
+        card.request_reset_cooldown.connect(
+            lambda c=card: self._on_reset_cooldown(c)
+        )
         return card
 
     def _on_keys_changed_external(self) -> None:
         # The KeyManager fires ``add_listener`` callbacks on whatever
-        # thread did the save — in our flows that's always the GUI
-        # thread, but we still emit the public ``keys_changed`` signal
-        # using direct connections so listeners (e.g. the AI Inspector
-        # tab) refresh without polling.
+        # thread did the save \u2014 the runner uses worker threads, so
+        # this can land off the GUI thread. ``_status_invalidated`` is
+        # connected with QueuedConnection below so the actual widget
+        # update always runs on the GUI thread.
+        self._status_invalidated.emit()
         self.keys_changed.emit()
+
+    _status_invalidated = Signal()
+
+    def _on_status_invalidated(self) -> None:
+        """Refresh each card's status pill from the latest KeyManager state.
+
+        The list of ``KeyEntry`` objects can lose / gain entries when a
+        key is added or removed externally; in that case fall back to a
+        full ``_reload_cards`` rebuild. Otherwise just call
+        ``card.update_from`` on each existing card so we don't tear
+        down and rebuild widgets every time the runner flips a status.
+        """
+        entries = self._km.all()
+        if len(entries) != len(self._cards):
+            self._reload_cards()
+            return
+        for card, entry in zip(self._cards, entries):
+            card.update_from(entry)
+
+    def _on_reset_cooldown(self, card: "ApiKeyCard") -> None:
+        idx = card.index()
+        existing = self._km.all()
+        if not (0 <= idx < len(existing)):
+            return
+        self._km.reset_cooldown_for(existing[idx])
+        # The KeyManager listener will refresh the badge for us via
+        # ``_on_keys_changed_external`` \u2192 ``_status_invalidated``.
 
     # ---- handlers ----------------------------------------------------
 
