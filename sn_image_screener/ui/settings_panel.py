@@ -228,7 +228,11 @@ class ApiKeyDialog(QDialog):
     # ---- internal handlers -------------------------------------------
 
     def _on_provider_change(self, _idx: int) -> None:
-        provider = self.cb_provider.currentData()
+        # PySide6 silently coerces ``str``-based enums (``ProviderName``
+        # is ``str, Enum``) stored as ``QComboBox`` user data into a
+        # plain ``str`` round-trip. Re-wrap so the rest of the dialog,
+        # and ultimately ``KeyEntry``, sees a real enum.
+        provider = ProviderName(self.cb_provider.currentData())
         # Keep the typed key when switching providers — usually the
         # user pastes the key *after* picking the provider, but if
         # they already pasted we don't want to wipe it.
@@ -282,7 +286,11 @@ class ApiKeyDialog(QDialog):
     # ---- public API --------------------------------------------------
 
     def to_entry(self) -> KeyEntry:
-        provider: ProviderName = self.cb_provider.currentData()
+        # See ``_on_provider_change`` — ``currentData()`` round-trips
+        # ``ProviderName`` through PySide6 as a plain ``str``, which
+        # then crashes ``provider.value`` and breaks the Save button on
+        # every fresh add. Re-wrap before any attribute access.
+        provider: ProviderName = ProviderName(self.cb_provider.currentData())
         model_id: str = self.cb_model.currentData()
         label = (self.ed_label.text() or "").strip() or f"{provider.value} key"
         key = (self.ed_key.text() or "").strip()

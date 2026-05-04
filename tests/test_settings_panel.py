@@ -142,3 +142,47 @@ def test_dialog_preserves_unknown_model_for_legacy_keys(qapp):
     assert legacy.model in items
     # And the dialog should have it currently selected.
     assert dlg.cb_model.currentData() == legacy.model
+
+
+def test_dialog_to_entry_returns_provider_enum(qapp):
+    """Regression: PySide6 round-trips ``ProviderName`` (a ``str, Enum``)
+    through ``QComboBox`` user data as a plain ``str``. Without an
+    explicit cast in ``to_entry`` the empty-label fallback
+    ``f"{provider.value} key"`` raises ``AttributeError`` and the Save
+    button on the Add API Key dialog crashes silently — leaving the
+    Settings page stuck on the empty state.
+    """
+    dlg = ApiKeyDialog()
+    dlg.ed_key.setText("AIzaTestKey1234567890abcdef")
+    # Leaving the label empty exercises the ``provider.value`` fallback.
+    entry = dlg.to_entry()
+    assert isinstance(entry.provider, ProviderName)
+    assert entry.provider == ProviderName.GEMINI
+    assert entry.label.endswith("key")
+
+
+def test_settings_panel_add_flow_persists_default_label(qapp, tmp_path: Path):
+    """End-to-end: simulate the dialog ``accept`` path the real "+ ADD
+    API KEY" button takes. The freshly-added card must show up and the
+    on-disk JSON must contain the new entry — the bug was that
+    ``_on_add`` raised on ``provider.value`` before either happened.
+    """
+    p = tmp_path / "keys.json"
+    km = KeyManager(p)
+    panel = SettingsPanel(km)
+    assert panel._stack.currentIndex() == 1  # noqa: SLF001 — empty state
+
+    dlg = ApiKeyDialog(parent=panel)
+    dlg.ed_key.setText("AIzaTestKey1234567890abcdef")
+    entry = dlg.to_entry()
+    assert entry.key
+    km.add_and_save(entry)
+    panel._reload_cards()  # noqa: SLF001 — same call _on_add makes
+    qapp.processEvents()
+
+    assert len(panel._cards) == 1  # noqa: SLF001
+    assert panel._stack.currentIndex() == 0  # noqa: SLF001 — cards visible
+
+    km2 = KeyManager(p)
+    assert len(km2.all()) == 1
+    assert km2.all()[0].provider == ProviderName.GEMINI
