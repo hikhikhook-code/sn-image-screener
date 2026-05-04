@@ -254,6 +254,7 @@ class KeyManager:
     def set_status(
         self, key: KeyEntry, status: KeyStatus, error: str = "",
     ) -> None:
+        changed = False
         with self._lock:
             for i, k in enumerate(self._keys):
                 if k is key or (
@@ -278,7 +279,61 @@ class KeyManager:
                         self._cooldown[i] = now_ts() + DEFAULT_FAILURE_COOLDOWN_S
                     elif status == KeyStatus.ACTIVE:
                         self._cooldown.pop(i, None)
+                    changed = True
                     break
+        # Fire listeners outside the lock so the UI can refresh its
+        # status badge live during a scan. We deliberately do NOT call
+        # ``save()`` here — transient cooldowns (rate-limit / fail)
+        # should not survive an app restart, only persist via the
+        # explicit ``set_status_and_save`` path used by the in-line
+        # Test button.
+        if changed:
+            self._notify_changed()
+
+    def cooldown_remaining_for(self, key: KeyEntry) -> Optional[float]:
+        """Seconds until the given key's cooldown lifts, or ``None``.
+
+        Returns ``None`` if the key has no active cooldown (already
+        usable). Useful for showing a live countdown on the Settings
+        card while a scan is rotating between keys.
+        """
+        with self._lock:
+            for i, k in enumerate(self._keys):
+                if k is key or (
+                    k.provider == key.provider
+                    and k.label == key.label
+                    and k.key == key.key
+                ):
+                    until = self._cooldown.get(i)
+                    if until is None:
+                        return None
+                    remaining = until - now_ts()
+                    return remaining if remaining > 0 else None
+            return None
+
+    def reset_cooldown_for(self, key: KeyEntry) -> bool:
+        """Forcibly clear the cooldown for ``key`` and re-mark it active.
+
+        Used by the Settings "Reset cooldown" button so users can force
+        a key back into rotation before its rate-limit window expires.
+        Returns True if the key was found.
+        """
+        changed = False
+        with self._lock:
+            for i, k in enumerate(self._keys):
+                if k is key or (
+                    k.provider == key.provider
+                    and k.label == key.label
+                    and k.key == key.key
+                ):
+                    self._cooldown.pop(i, None)
+                    self._keys[i].status = KeyStatus.UNTESTED
+                    self._keys[i].last_error = ""
+                    changed = True
+                    break
+        if changed:
+            self._notify_changed()
+        return changed
 
     def reorder(self, ordering: List[int]) -> None:
         """Reorder keys based on the new priority list of indexes."""

@@ -161,6 +161,52 @@ def test_dialog_to_entry_returns_provider_enum(qapp):
     assert entry.label.endswith("key")
 
 
+def test_card_shows_cooldown_countdown_on_rate_limit(qapp, tmp_path: Path):
+    """When the runner pushes a key into RATE_LIMITED, the card's
+    status pill must (a) reflect the new status, (b) show a seconds
+    countdown, (c) reveal the RETRY NOW button. This is what makes
+    auto-rotation visible to the user during a scan.
+    """
+    p = tmp_path / "keys.json"
+    km = KeyManager(p)
+    km.add_and_save(_entry("primary"))
+    panel = SettingsPanel(km)
+    card = panel._cards[0]  # noqa: SLF001
+    # In offscreen tests ``isVisible()`` always returns False because
+    # the panel is never ``.show()``-n; check the explicit hidden
+    # flag instead, which still flips with ``setVisible``.
+    assert card.btn_retry.isHidden() is True
+
+    # Simulate a 429 from the runner thread (here we call directly,
+    # which exercises the same code path).
+    km.set_status(km.all()[0], KeyStatus.RATE_LIMITED, error="try again in 5.0s")
+    # Drain the queued signal that hops back to the GUI thread.
+    qapp.processEvents()
+
+    assert "rate_limited" in card.lbl_status.text()
+    assert "s)" in card.lbl_status.text(), card.lbl_status.text()
+    assert card.btn_retry.isHidden() is False
+
+
+def test_card_retry_button_clears_cooldown(qapp, tmp_path: Path):
+    p = tmp_path / "keys.json"
+    km = KeyManager(p)
+    km.add_and_save(_entry("primary"))
+    panel = SettingsPanel(km)
+    card = panel._cards[0]  # noqa: SLF001
+
+    km.set_status(km.all()[0], KeyStatus.RATE_LIMITED, error="rl")
+    qapp.processEvents()
+    assert card.btn_retry.isHidden() is False
+
+    card.btn_retry.click()
+    qapp.processEvents()
+
+    assert km.cooldown_remaining_for(km.all()[0]) is None
+    assert km.all()[0].status == KeyStatus.UNTESTED
+    assert card.btn_retry.isHidden() is True
+
+
 def test_settings_panel_add_flow_persists_default_label(qapp, tmp_path: Path):
     """End-to-end: simulate the dialog ``accept`` path the real "+ ADD
     API KEY" button takes. The freshly-added card must show up and the
