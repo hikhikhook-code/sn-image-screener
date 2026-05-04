@@ -65,3 +65,43 @@ def test_encode_for_provider_resizes_huge(big_image: Path):
     from io import BytesIO
     im = Image.open(BytesIO(data))
     assert max(im.size) <= 512
+
+
+def test_encode_for_provider_clamps_min_dim_on_thin_image(tmp_path: Path):
+    """A 4000×3 strip would naively scale to 1568×1 and trigger Groq's
+    "Image must have at least 2 pixels in each dimension" 400. The
+    encoder must clamp every output dim to ≥ 2 px instead.
+    """
+    p = tmp_path / "thin.jpg"
+    Image.new("RGB", (4000, 3), color=(0, 0, 0)).save(p, "JPEG")
+    data, _ = encode_for_provider(p, max_long=1568)
+    from io import BytesIO
+    im = Image.open(BytesIO(data))
+    assert min(im.size) >= 2, f"got degenerate dims {im.size}"
+
+
+def test_encode_for_provider_keeps_tiny_image_above_min_dim(tmp_path: Path):
+    """A 100×1 image (already short enough that no long-edge resize is
+    needed) must still come out with both dims ≥ 2.
+    """
+    p = tmp_path / "tiny.jpg"
+    Image.new("RGB", (100, 1), color=(0, 0, 0)).save(p, "JPEG")
+    data, _ = encode_for_provider(p, max_long=1568)
+    from io import BytesIO
+    im = Image.open(BytesIO(data))
+    assert min(im.size) >= 2
+
+
+def test_build_tiles_skips_degenerate_tiles(tmp_path: Path):
+    """Splitting a 3-px-wide image into a 4×4 grid produces zero-width
+    columns that the vision provider would reject. Those tiles must be
+    skipped, and any tile that IS produced must be ≥ 2 px on every side.
+    """
+    p = tmp_path / "narrow.jpg"
+    Image.new("RGB", (3, 200), color=(0, 0, 0)).save(p, "JPEG")
+    _, _, tiles = build_tiles(p, ScanDepth.ULTRA)
+    for t in tiles:
+        assert t.w >= 2 and t.h >= 2, f"tile {t.index} too small: {t.w}×{t.h}"
+        assert t.image is not None and t.image.exists()
+        with Image.open(t.image) as ti:
+            assert min(ti.size) >= 2
